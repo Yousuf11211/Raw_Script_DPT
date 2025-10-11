@@ -46,14 +46,22 @@ def get_user_yes_no(prompt):
 # ==============================================================================
 # TASK 1: STATIC DOMINANCE REPORT LOGIC
 # ==============================================================================
+# ==============================================================================
+# TASK 1: DOMINANCE REPORT LOGIC (MODIFIED FOR SUMMARIZED OUTPUT)
+# ==============================================================================
 def generate_dominance_report(file_path):
-    """Analyzes a CSV for value dominance and creates a static report file."""
+    """
+    Analyzes a CSV for value dominance and creates a summarized report.
+    - Shows the top dominant value in detail.
+    - Summarizes all other remaining values into a single line.
+    """
     print(f"\n--- [Task 1] Generating Dominance Report for: {os.path.basename(file_path)} ---")
     col_counters = defaultdict(Counter)
     total_counts = Counter()
     label_counter = Counter()
     col_value_label_counter = defaultdict(lambda: defaultdict(Counter))
     try:
+        # (Analysis phase is unchanged)
         for chunk in pd.read_csv(file_path, chunksize=CHUNK_SIZE, dtype=str, low_memory=False):
             labels = chunk.get("Label") or chunk.get("label")
             if labels is not None:
@@ -66,18 +74,22 @@ def generate_dominance_report(file_path):
                     for v, lbl in zip(chunk[col], labels):
                         if pd.notna(v) and pd.notna(lbl):
                             col_value_label_counter[col][v][lbl] += 1
+
         bucketed = {label: [] for _, _, label in DOMINANCE_RANGES}
         for col, counts in col_counters.items():
-            if total_counts[col] == 0: continue
+            if not counts: continue
             _, most_common_count = counts.most_common(1)[0]
             ratio = most_common_count / total_counts[col]
             for low, high, label in DOMINANCE_RANGES:
                 if low <= ratio < high:
                     bucketed[label].append((col, counts, total_counts[col]))
                     break
+
         report_path = os.path.join(OUTPUT_FOLDER,
                                    f"{os.path.splitext(os.path.basename(file_path))[0]}_dominance_report.txt")
+
         with open(report_path, "w", encoding="utf-8") as f:
+            # (Header and Label distribution part is unchanged)
             header_text = f"Dominance Report for {os.path.basename(file_path)}"
             f.write(header_text + "\n" + "=" * 60 + "\n\n")
             print("\n" + header_text)
@@ -91,6 +103,8 @@ def generate_dominance_report(file_path):
                     f.write(line_text + "\n")
                     print(line_text)
                 f.write("\n")
+
+            # --- MODIFIED REPORTING LOGIC STARTS HERE ---
             for label in bucketed:
                 bucket_header = f"\nColumns in {label} range:\n" + "-" * 40
                 f.write(bucket_header + "\n")
@@ -103,15 +117,41 @@ def generate_dominance_report(file_path):
                         col_header = f"\nColumn: {col}"
                         f.write(col_header + "\n")
                         print(col_header)
-                        for val, count in counts.most_common():
-                            ratio = count / total
-                            line_to_output = f"  Value '{val}': {count:,} ({ratio * 100:.2f}%)"
-                            if val in col_value_label_counter.get(col, {}):
-                                lbl_counts = col_value_label_counter[col][val]
-                                breakdown = ", ".join(f"{lbl}: {c:,}" for lbl, c in lbl_counts.most_common())
-                                line_to_output += f" -> Labels: [{breakdown}]"
-                            f.write(line_to_output + "\n")
-                            print(line_to_output)
+
+                        # 1. Get and display the dominant value
+                        dominant_val, dominant_count = counts.most_common(1)[0]
+                        dominant_ratio = dominant_count / total
+
+                        dominant_line = f"  Value '{dominant_val}': {dominant_count:,} ({dominant_ratio * 100:.2f}%)"
+                        if dominant_val in col_value_label_counter.get(col, {}):
+                            lbl_counts = col_value_label_counter[col][dominant_val]
+                            breakdown = ", ".join(f"{lbl}: {c:,}" for lbl, c in lbl_counts.most_common())
+                            dominant_line += f" -> Labels: [{breakdown}]"
+
+                        f.write(dominant_line + "\n")
+                        print(dominant_line)
+
+                        # 2. Summarize all other values
+                        num_remaining_unique = len(counts) - 1
+                        if num_remaining_unique > 0:
+                            total_remaining_count = total - dominant_count
+                            remaining_ratio = total_remaining_count / total
+
+                            # Aggregate label counts for all remaining values
+                            remaining_label_counts = Counter()
+                            for val, count in counts.items():
+                                if val != dominant_val:
+                                    # Get the label breakdown for this specific other value
+                                    labels_for_this_val = col_value_label_counter[col].get(val, {})
+                                    remaining_label_counts.update(labels_for_this_val)
+
+                            remaining_breakdown = ", ".join(
+                                f"{lbl}: {c:,}" for lbl, c in remaining_label_counts.most_common())
+
+                            summary_line = f"  Remaining {remaining_ratio * 100:.2f}%: in {num_remaining_unique} other unique values -> Labels: [{remaining_breakdown}]"
+                            f.write(summary_line + "\n")
+                            print(summary_line)
+
         print(f"\nReport saved to: {report_path}")
     except Exception as e:
         print(f"ERROR during dominance report: {e}")
