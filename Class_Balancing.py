@@ -6,8 +6,8 @@ from imblearn.under_sampling import RandomUnderSampler
 from imblearn.over_sampling import SMOTE, BorderlineSMOTE, ADASYN
 
 # ===== CONFIGURATION =====
-INPUT_FOLDER = "Training_2018"
-OUTPUT_FOLDER = "Balanced_Training_2018"
+INPUT_FOLDER = "Attack_Training"
+OUTPUT_FOLDER = "Attack_Balanced"
 
 
 # ===== FUNCTIONS =====
@@ -66,10 +66,29 @@ def apply_resampling(X, y, target_strategy, oversampler_class):
     if oversample:
         print("\nOversampling started...")
         min_samples_for_smote = min(count for cls, count in Counter(y_res).items() if cls in oversample)
-        k_neighbors = max(1, min(min_samples_for_smote - 1, 5))
 
-        print(f"Using {oversampler_class.__name__} with k_neighbors={k_neighbors}...")
-        sampler = oversampler_class(sampling_strategy=oversample, k_neighbors=k_neighbors, random_state=42)
+        # This value will be used for either k_neighbors or n_neighbors
+        num_neighbors = max(1, min(min_samples_for_smote - 1, 5))
+
+        # --- THIS IS THE CORRECTED LOGIC ---
+        # Create a dictionary for sampler parameters
+        sampler_params = {
+            'sampling_strategy': oversample,
+            'random_state': 42
+        }
+
+        # Check the class and add the correct neighbors parameter
+        if oversampler_class == ADASYN:
+            sampler_params['n_neighbors'] = num_neighbors
+            print(f"Using ADASYN with n_neighbors={num_neighbors}...")
+        else:  # For SMOTE and BorderlineSMOTE
+            sampler_params['k_neighbors'] = num_neighbors
+            print(f"Using {oversampler_class.__name__} with k_neighbors={num_neighbors}...")
+
+        # Create the sampler by unpacking the parameters dictionary
+        sampler = oversampler_class(**sampler_params)
+        # --- END OF CORRECTION ---
+
         X_res, y_res = sampler.fit_resample(X_res, y_res)
         print("Oversampling done.")
 
