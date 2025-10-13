@@ -1,62 +1,62 @@
 import os
 import pandas as pd
 
-# --- Step 1: Set your folder path and the columns you want to remove ---
-
-# The folder where your original CSV files are located.
-# Example for Windows: "C:\\Users\\YourUser\\Desktop\\MyData"
-# Example for Mac/Linux: "/home/youruser/Desktop/MyData"
-input_folder = "Downscale_Csv_2018"
-
-# A list of the column names you want to remove.
-# The names must be an exact match.
+# --- 1. Configuration ---
+input_folder = "No_Missing"       # Folder with original CSVs
+output_folder = "Downscale_Csv_2018_Cleaned"  # Folder to save cleaned CSVs
 columns_to_remove = [
-    'flow_id',
-    'src_ip',
-    'dst_ip',
-    'timestamp',
-    # Add any other columns you want to remove here
+    'flow_id','src_ip','dst_ip','timestamp','active_cov','active_max','active_mean','active_median',
+    'active_min','active_mode','active_skewness','active_std','active_variance','bwd_cwr_flag_counts',
+    'bwd_cwr_flag_percentage_in_bwd_packets','bwd_cwr_flag_percentage_in_total','bwd_payload_bytes_min',
+    'bwd_urg_flag_counts','bwd_urg_flag_percentage_in_bwd_packets','bwd_urg_flag_percentage_in_total',
+    'fwd_payload_bytes_min','fwd_urg_flag_counts','fwd_urg_flag_percentage_in_fwd_packets',
+    'fwd_urg_flag_percentage_in_total','handshake_state','idle_cov','idle_max','idle_mean','idle_median',
+    'idle_min','idle_mode','idle_skewness','idle_std','idle_variance','median_bwd_header_bytes_delta_len',
+    'median_fwd_header_bytes_delta_len','median_header_bytes_delta_len','mode_bwd_header_bytes_delta_len',
+    'mode_fwd_header_bytes_delta_len','payload_bytes_min','urg_flag_counts','protocol',
+    'urg_flag_percentage_in_total','cov_bwd_payload_bytes_delta_len','cov_fwd_header_bytes_delta_len',
+    'cov_fwd_packets_delta_len','cov_fwd_payload_bytes_delta_len','cov_header_bytes_delta_len',
+    'cov_packets_delta_len','cov_payload_bytes_delta_len'
 ]
 
-# --- Step 2: The rest of the script processes the files ---
+chunk_size = 1_000_000  # Adjust based on memory
 
-# Set a chunk size for reading large files to manage memory usage
-chunk_size = 100_0000
+# Ensure output folder exists
+os.makedirs(output_folder, exist_ok=True)
 
 print(f"Searching for CSV files in: {input_folder}\n")
 
-# Loop through every file in the specified folder
+# --- 2. Process each file ---
 for filename in os.listdir(input_folder):
-    # Check if the file is a CSV and not one we've already created
-    if filename.endswith('.csv') and not filename.endswith('_columns_removed.csv'):
-
+    if filename.endswith('.csv'):
         input_csv_path = os.path.join(input_folder, filename)
-
-        # Create the new filename for the output file
-        base_name = os.path.splitext(filename)[0]
-        output_filename = f"{base_name}_columns_removed.csv"
-        output_csv_path = os.path.join(input_folder, output_filename)
+        output_csv_path = os.path.join(output_folder, filename)  # same name in new folder
 
         print(f"Processing '{filename}'...")
 
-        # A flag to ensure we write the header only for the first chunk
+        # Read first row to detect which columns exist
+        try:
+            df_head = pd.read_csv(input_csv_path, nrows=0)
+        except Exception as e:
+            print(f"  Error reading {filename}: {e}")
+            continue
+
+        # Determine which columns will be deleted
+        cols_found = [col for col in df_head.columns if col in columns_to_remove]
+        print(f"  Number of columns to delete: {len(cols_found)}")
+        print(f"  Columns found for deletion: {cols_found}")
+        print("  Moving to deletion and saving...")
+
+        # Process file in chunks
         is_first_chunk = True
-
-        # Read the input CSV in manageable chunks
         for chunk in pd.read_csv(input_csv_path, chunksize=chunk_size, low_memory=False):
-
-            # Drop the specified columns from the chunk
-            # 'errors='ignore'' prevents a crash if a column doesn't exist
-            chunk.drop(columns=columns_to_remove, inplace=True, errors='ignore')
-
-            # If this is the first chunk, create a new file and write the header
+            chunk.drop(columns=cols_found, inplace=True, errors='ignore')
             if is_first_chunk:
                 chunk.to_csv(output_csv_path, index=False, mode='w')
                 is_first_chunk = False
-            # For all other chunks, append to the existing file without the header
             else:
                 chunk.to_csv(output_csv_path, index=False, mode='a', header=False)
 
-        print(f"----> Successfully created '{output_filename}'\n")
+        print(f"----> Successfully created cleaned file in '{output_folder}'\n")
 
-print("All files processed.")
+print("All files processed successfully.")
