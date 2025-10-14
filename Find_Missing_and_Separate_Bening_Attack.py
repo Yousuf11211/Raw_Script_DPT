@@ -1,246 +1,212 @@
 import os
 import pandas as pd
 from collections import defaultdict
-import numpy as np
+import math
 
 # --- 1. Global Configuration ---
-INPUT_FOLDER = "Raw_Data_2018"
-OUTPUT_FOLDER = "Cleaned_Shuffled_Data_V2"
-CHUNK_SIZE = 500_000
-DEFAULT_ROWS_PER_FILE = 1_000_000
-LABEL_COLUMN = 'Label'  # Case-insensitive
-BENIGN_LABEL_VALUE = 'BENIGN'
+INPUT_FOLDER = "Downscale_Csv_2018_Cleaned"
+OUTPUT_FOLDER = "Proportional_Data_V2"
+CHUNK_SIZE = 1_500_000  # A larger chunk size is efficient for counting
+LABEL_COLUMN_NAME = 'label'  # We will enforce lowercase internally for consistency
+BENIGN_LABEL_VALUE = 'benign'  # We will enforce lowercase internally
 
 
 # --- 2. Core Functions ---
 
-def analyze_all_files(all_files):
+def analyze_and_classify(all_files):
     """
-    Analyzes all CSV files to get aggregated counts for a comprehensive report.
-    This combines the analysis from your original file-by-file loop.
+    Reads all files ONCE to get total row counts and classify files by the labels they contain.
+    This is the efficient, hybrid approach.
     """
-    print("--- Phase 1: Analyzing all source files ---")
-    grand_total_counts = defaultdict(int)
-    grand_missing_counts = defaultdict(int)
-    first_file_label_col = None
+    print("--- Phase 1: Analyzing all files for counts and classification ---")
+    total_counts = defaultdict(int)
+    files_by_label = defaultdict(set)  # Using a set to avoid duplicate file paths
+    actual_label_col_name = None
 
     for file_path in all_files:
         print(f"  Scanning: {os.path.basename(file_path)}...")
-        actual_label_col_name = None
         try:
-            # This is your original case-insensitive column finding logic
-            header_df = pd.read_csv(file_path, nrows=0, low_memory=False)
-            for col_name in header_df.columns:
-                if col_name.lower() == LABEL_COLUMN.lower():
-                    actual_label_col_name = col_name
-                    if first_file_label_col is None:
-                        first_file_label_col = actual_label_col_name
-                    break
+            # Find the label column in the first file and reuse it
+            if actual_label_col_name is None:
+                header_df = pd.read_csv(file_path, nrows=0, low_memory=False)
+                for col in header_df.columns:
+                    if col.lower() == LABEL_COLUMN_NAME:
+                        actual_label_col_name = col
+                        break
 
             if not actual_label_col_name:
-                print(f"    Warning: Label column '{LABEL_COLUMN}' not found. Skipping.")
+                print(f"    Warning: Label column not found in this file. Skipping.")
                 continue
 
-            # This is your original counting logic for total and missing rows
-            for chunk in pd.read_csv(file_path, chunksize=CHUNK_SIZE, low_memory=False):
-                total_counts = chunk[actual_label_col_name].value_counts()
-                for label, count in total_counts.items():
-                    grand_total_counts[label] += count
-                rows_with_missing = chunk[chunk.isnull().any(axis=1)]
-                if not rows_with_missing.empty:
-                    missing_counts = rows_with_missing[actual_label_col_name].value_counts()
-                    for label, count in missing_counts.items():
-                        grand_missing_counts[label] += count
+            # Read the file in chunks to manage memory
+            for chunk in pd.read_csv(file_path, usecols=[actual_label_col_name], chunksize=CHUNK_SIZE,
+                                     low_memory=False):
+                chunk.columns = [col.lower() for col in chunk.columns]  # Standardize column names
+
+                # Get counts for this chunk and add to grand total
+                chunk_counts = chunk[LABEL_COLUMN_NAME].value_counts()
+                for label, count in chunk_counts.items():
+                    total_counts[label] += count
+                    # Associate this file with this label
+                    files_by_label[label].add(file_path)
+
         except Exception as e:
             print(f"    Error analyzing {os.path.basename(file_path)}: {e}")
 
+    # Convert sets to lists for easier processing later
+    files_by_label = {label: list(paths) for label, paths in files_by_label.items()}
+
     print("--- Analysis complete ---")
-    return grand_total_counts, grand_missing_counts, first_file_label_col
+    return total_counts, files_by_label, actual_label_col_name
 
 
-def get_user_instructions(total_counts, missing_counts):
+def process_and_save_proportionally(file_list, rows_per_output_file, label_name, output_base_path, should_shuffle,
+                                    actual_label_col_name):
     """
-    This function contains ALL of your original interactive prompts, plus the new shuffle prompt.
+    Reads data proportionally from a list of files and saves it into new CSVs.
+    (This function remains the same as the previous version)
     """
-    print("\n--- Total Row Count Report (from all files) ---")
-    for label, count in sorted(total_counts.items()):
-        print(f"  - {label}: {count:,} total rows.")
-    print("-------------------------------------------------")
+    if not file_list:
+        return
 
-    # Prompt 1: Benign row limit (Original logic)
-    benign_rows_per_file = 0
-    if BENIGN_LABEL_VALUE in total_counts:
-        while True:
+    num_source_files = len(file_list)
+    rows_to_take_per_file = math.ceil(rows_per_output_file / num_source_files)
+    print(f"\nProcessing Label: {label_name}")
+    print(f"  - Using {num_source_files} source file(s).")
+    print(f"  - Aiming for {rows_per_output_file:,} rows per output file.")
+    print(f"  - Will attempt to take ~{rows_to_take_per_file:,} rows from each source file per output part.")
+
+    rows_read_from_file = {path: 0 for path in file_list}
+    file_part_counter = 1
+    os.makedirs(output_base_path, exist_ok=True)
+
+    while True:
+        batch_dataframes = []
+        total_rows_in_this_pass = 0
+
+        for file_path in file_list:
             try:
-                prompt = f"\nEnter max rows per Benign file (default: {DEFAULT_ROWS_PER_FILE:,}): "
-                user_input = input(prompt).strip()
-                benign_rows_per_file = int(user_input) if user_input else DEFAULT_ROWS_PER_FILE
-                if benign_rows_per_file > 0:
-                    break
-                else:
-                    print("  Please enter a positive number.")
-            except ValueError:
-                print("  Invalid input. Please enter a whole number.")
+                skip = rows_read_from_file[file_path] + 1
 
-    # Prompt 2: Attack row limit (Original logic)
-    attack_rows_per_file = 0
-    if any(label != BENIGN_LABEL_VALUE for label in total_counts):
-        while True:
-            try:
-                prompt = f"Enter max rows per Attack file (default: {DEFAULT_ROWS_PER_FILE:,}): "
-                user_input = input(prompt).strip()
-                attack_rows_per_file = int(user_input) if user_input else DEFAULT_ROWS_PER_FILE
-                if attack_rows_per_file > 0:
-                    break
-                else:
-                    print("  Please enter a positive number.")
-            except ValueError:
-                print("  Invalid input. Please enter a whole number.")
+                df_chunk = pd.read_csv(
+                    file_path,
+                    skiprows=range(1, skip),
+                    nrows=rows_to_take_per_file,
+                    low_memory=False
+                )
 
-    # New Prompt: Shuffle option
-    should_shuffle = input("Do you want to shuffle the final output files? (y/n): ").strip().lower() in ['y', 'yes']
+                if not df_chunk.empty:
+                    # Ensure we only keep rows of the correct label (case-insensitive)
+                    clean_chunk = df_chunk[df_chunk[actual_label_col_name].str.lower() == label_name.lower()]
+                    batch_dataframes.append(clean_chunk)
 
-    # Prompt 3: Cleaning rules (Original logic)
-    labels_to_delete = set()
-    if not missing_counts:
-        print("\nNo rows with missing values found across all files. No cleaning needed.")
-    else:
-        print("\n--- Missing Value Report (from all files) ---")
-        for label, count in sorted(missing_counts.items()):
-            print(f"  - {label}: {count:,} rows have missing values.")
-        print("---------------------------------------------")
-        user_input = input("Enter labels to clean (e.g., BENIGN,DoS), or 'all' or 'none'.\n> ").strip()
-        if user_input.lower() == 'all':
-            labels_to_delete = set(missing_counts.keys())
-        elif user_input.lower() not in ['none', '']:
-            labels_to_delete = {label.strip() for label in user_input.split(',')}
+                    rows_read_from_file[file_path] += len(df_chunk)
+                    total_rows_in_this_pass += len(clean_chunk)
 
-    # Prompt 4 & 5: Advanced separation (Original logic)
-    separate_by_missing_status = False
-    separation_scope = 'none'
-    print("-" * 30)
-    if input("Separate output into 'NoMissing' and 'Missing' folders? (y/n): ").strip().lower() in ['y', 'yes']:
-        separate_by_missing_status = True
-        while True:
-            scope_input = input("Apply to [B]enign, [A]ttacks, or [Bo]th?: ").strip().lower()
-            if scope_input in ['b', 'benign']:
-                separation_scope = 'benign'; break
-            elif scope_input in ['a', 'attacks']:
-                separation_scope = 'attacks'; break
-            elif scope_input in ['bo', 'both']:
-                separation_scope = 'both'; break
-            else:
-                print("Invalid input. Please enter 'b', 'a', or 'bo'.")
+            except StopIteration:  # This can happen with some iterators, treat as end of file
+                continue
+            except Exception as e:
+                print(
+                    f"    Warning: Could not read from {os.path.basename(file_path)}. Maybe it's finished? Error: {e}")
+                continue
 
-    return labels_to_delete, benign_rows_per_file, attack_rows_per_file, separate_by_missing_status, separation_scope, should_shuffle
+        if not batch_dataframes:
+            print(f"  - No more data to read for label '{label_name}'. Finished.")
+            break
 
+        combined_df = pd.concat(batch_dataframes, ignore_index=True)
 
-def process_all_files(all_files, actual_label_col, instructions):
-    """
-    Pools, cleans, shuffles, and saves data from all files based on user instructions.
-    """
-    print("\n--- Phase 2: Pooling and Cleaning Data ---")
-    labels_to_delete, benign_rows_per_file, attack_rows_per_file, separate_by_missing, scope, should_shuffle = instructions
+        if should_shuffle:
+            print(f"  - Shuffling {len(combined_df):,} rows...")
+            combined_df = combined_df.sample(frac=1).reset_index(drop=True)
 
-    data_pools = defaultdict(lambda: defaultdict(list))
+        safe_name = "".join(c for c in label_name if c.isalnum() or c in ('-', '_'))
+        output_filename = os.path.join(output_base_path, f"{safe_name}_part_{file_part_counter}.csv")
 
-    for file_path in all_files:
-        print(f"  Processing {os.path.basename(file_path)}...")
-        try:
-            for chunk in pd.read_csv(file_path, chunksize=CHUNK_SIZE, low_memory=False):
-                # This is your original cleaning logic, applied during the pooling stage
-                if labels_to_delete:
-                    rows_to_drop_mask = (chunk[actual_label_col].isin(labels_to_delete)) & (chunk.isnull().any(axis=1))
-                    chunk = chunk[~rows_to_drop_mask]
-                if chunk.empty: continue
+        # Take the exact number of rows requested, in case we over-shot with the proportional read
+        final_df = combined_df.head(rows_per_output_file)
 
-                # This is your original separation logic, now used to sort data into pools
-                chunk_missing = chunk[chunk.isnull().any(axis=1)]
-                chunk_no_missing = chunk.dropna()
+        final_df.to_csv(output_filename, index=False)
+        print(f"  -> Saved {len(final_df):,} rows to {os.path.relpath(output_filename)}")
 
-                for label, group in chunk_no_missing.groupby(actual_label_col):
-                    data_pools[label]['NoMissing'].append(group)
-                for label, group in chunk_missing.groupby(actual_label_col):
-                    data_pools[label]['Missing'].append(group)
-        except Exception as e:
-            print(f"    Warning: Could not process {os.path.basename(file_path)}. Error: {e}")
-
-    print("\n--- Phase 3: Shuffling and Saving Final Files ---")
-
-    # Create output directories based on the original logic
-    os.makedirs(os.path.join(OUTPUT_FOLDER, "Benign"), exist_ok=True)
-    os.makedirs(os.path.join(OUTPUT_FOLDER, "Attacks"), exist_ok=True)
-    if separate_by_missing:
-        os.makedirs(os.path.join(OUTPUT_FOLDER, "NoMissing", "Benign"), exist_ok=True)
-        os.makedirs(os.path.join(OUTPUT_FOLDER, "NoMissing", "Attacks"), exist_ok=True)
-        os.makedirs(os.path.join(OUTPUT_FOLDER, "Missing", "Benign"), exist_ok=True)
-        os.makedirs(os.path.join(OUTPUT_FOLDER, "Missing", "Attacks"), exist_ok=True)
-
-    for label, status_pools in data_pools.items():
-        for status, df_list in status_pools.items():
-            print(f"\nProcessing: {label} ({status})")
-            if not df_list: continue
-
-            full_df = pd.concat(df_list, ignore_index=True)
-
-            # Here is the new conditional shuffling logic
-            if should_shuffle:
-                print(f"  Shuffling {len(full_df):,} rows...")
-                processed_df = full_df.sample(frac=1).reset_index(drop=True)
-            else:
-                print("  Skipping shuffling as requested.")
-                processed_df = full_df
-
-            # The rest of the saving logic combines your original rules with the new "split" method
-            is_benign = (label == BENIGN_LABEL_VALUE)
-            row_limit = benign_rows_per_file if is_benign else attack_rows_per_file
-            if row_limit <= 0: continue
-
-            should_this_pool_be_separated = (separate_by_missing and (
-                        scope == 'both' or (scope == 'benign' and is_benign) or (scope == 'attacks' and not is_benign)))
-
-            num_files = int(np.ceil(len(processed_df) / row_limit))
-            print(f"  Splitting into {num_files} file(s)...")
-            for i in range(num_files):
-                start_row, end_row = i * row_limit, (i + 1) * row_limit
-                df_part = processed_df.iloc[start_row:end_row]
-
-                safe_name = "".join(c for c in label if c.isalnum() or c in ('-', '_'))
-                subfolder = "Benign" if is_benign else "Attacks"
-
-                if should_this_pool_be_separated:
-                    path = os.path.join(OUTPUT_FOLDER, status, subfolder)
-                else:
-                    path = os.path.join(OUTPUT_FOLDER, subfolder)
-
-                output_filename = os.path.join(path, f"{safe_name}_part_{i + 1}.csv")
-                df_part.to_csv(output_filename, index=False)
-                print(f"    Saved {os.path.relpath(output_filename)}")
+        file_part_counter += 1
 
 
 def main():
-    """ The main function orchestrates the new, more efficient workflow. """
-    print("Starting the CSV Cleaning and Separation Process...")
+    """ Main orchestrator for the improved workflow. """
     all_csv_files = [os.path.join(root, file) for root, _, files in os.walk(INPUT_FOLDER) for file in files if
                      file.endswith(".csv")]
-
     if not all_csv_files:
         print(f"No CSV files found in '{INPUT_FOLDER}'. Exiting.")
         return
 
-    # Stage 1: Analyze all files to get one complete report
-    grand_total_counts, grand_missing_counts, actual_label_col = analyze_all_files(all_csv_files)
+    # 1. Run the single, efficient analysis pass
+    total_counts, files_by_label, actual_label_col = analyze_and_classify(all_csv_files)
     if not actual_label_col:
-        print("\nCould not find the label column in any files. Exiting.")
+        print("Could not determine the 'Label' column from any file. Exiting.")
         return
 
-    # Stage 2: Get all user instructions once
-    instructions = get_user_instructions(grand_total_counts, grand_missing_counts)
+    # --- 2. Show Report and Get User Input ---
+    print("\n--- Total Row Count Report (from all files) ---")
+    benign_label_in_data = None
+    attack_labels_in_data = {}
 
-    # Stage 3: Run the main processing workflow with all instructions
-    process_all_files(all_csv_files, actual_label_col, instructions)
+    for label, count in sorted(total_counts.items()):
+        print(f"  - {label}: {count:,} total rows.")
+        if str(label).lower() == BENIGN_LABEL_VALUE:
+            benign_label_in_data = label
+        else:
+            attack_labels_in_data[label] = count
+    print("-------------------------------------------------")
 
-    print("\n" + "=" * 80 + "\nAll files have been processed successfully!\n" + "=" * 80)
+    should_shuffle = input("Do you want to shuffle the final output files? (y/n): ").strip().lower() in ['y', 'yes']
+
+    # --- 3. Process BENIGN Files ---
+    if benign_label_in_data:
+        print("\n" + "=" * 30 + " PROCESSING BENIGN DATA " + "=" * 30)
+        while True:
+            try:
+                user_input = input(f"Enter max rows per Benign file: ").strip()
+                rows_per_file = int(user_input)
+                if rows_per_file > 0:
+                    process_and_save_proportionally(
+                        file_list=files_by_label[benign_label_in_data],
+                        rows_per_output_file=rows_per_file,
+                        label_name=benign_label_in_data,
+                        output_base_path=os.path.join(OUTPUT_FOLDER, 'Benign'),
+                        should_shuffle=should_shuffle,
+                        actual_label_col_name=actual_label_col
+                    )
+                    break
+                else:
+                    print("  Please enter a positive number.")
+            except ValueError:
+                print("  Invalid input. Please enter a whole number.")
+
+    # --- 4. Process ATTACK Files ---
+    if attack_labels_in_data:
+        print("\n" + "=" * 30 + " PROCESSING ATTACK DATA " + "=" * 30)
+        while True:
+            try:
+                user_input = input(f"Enter max rows per Attack file (applies to each attack type): ").strip()
+                rows_per_file = int(user_input)
+                if rows_per_file > 0:
+                    for label in attack_labels_in_data:
+                        process_and_save_proportionally(
+                            file_list=files_by_label[label],
+                            rows_per_output_file=rows_per_file,
+                            label_name=label,
+                            output_base_path=os.path.join(OUTPUT_FOLDER, 'Attacks'),
+                            should_shuffle=should_shuffle,
+                            actual_label_col_name=actual_label_col
+                        )
+                    break
+                else:
+                    print("  Please enter a positive number.")
+            except ValueError:
+                print("  Invalid input. Please enter a whole number.")
+
+    print("\n" + "=" * 80 + "\nAll processing is complete!\n" + "=" * 80)
 
 
 if __name__ == "__main__":
