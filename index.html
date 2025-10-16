@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intrusion Detection System Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .file-drop-zone {
+            border: 2px dashed #cbd5e0;
+            border-radius: 0.5rem;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out;
+        }
+        .file-drop-zone.dragover {
+            background-color: #f0f4f8;
+            border-color: #4a90e2;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto px-4 py-8">
+        <header class="text-center mb-12">
+            <h1 class="text-4xl font-bold text-gray-900">Intrusion Detection System</h1>
+            <p class="text-lg text-gray-600 mt-2">Leveraging a Hybrid AI Model for Network Traffic Analysis</p>
+        </header>
+
+        <main class="bg-white rounded-lg shadow-xl p-8 max-w-3xl mx-auto">
+            <div id="upload-section">
+                <h2 class="text-2xl font-semibold mb-4 text-center">Analyze Network Traffic</h2>
+                <div id="file-drop-zone" class="file-drop-zone">
+                    <p class="text-gray-600">Drag & Drop your PCAP or CSV file here</p>
+                    <p class="text-sm text-gray-500 my-2">or</p>
+                    <button id="browse-btn" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-blue-700 transition">
+                        Browse Files
+                    </button>
+                    <input type="file" id="file-input" class="hidden">
+                </div>
+                <div id="file-info" class="text-center mt-4 text-gray-700 hidden"></div>
+                <div class="text-center mt-6">
+                    <button id="analyze-btn" class="bg-green-600 text-white font-bold py-3 px-8 rounded-lg text-lg hover:bg-green-700 transition shadow-md disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
+                        Analyze
+                    </button>
+                </div>
+            </div>
+
+            <div id="results-section" class="hidden">
+                <h2 class="text-2xl font-semibold mb-6 text-center">Analysis Complete</h2>
+                <div id="result-card" class="rounded-lg p-6 text-center transition-all duration-300">
+                    <p class="text-lg font-medium text-gray-600 mb-2">Verdict</p>
+                    <p id="result-verdict" class="text-4xl font-bold"></p>
+                </div>
+                
+                <div class="mt-8">
+                     <h3 class="text-xl font-semibold mb-4">Details</h3>
+                     <div class="bg-gray-50 rounded-lg p-4">
+                         <p id="result-details"></p>
+                     </div>
+                </div>
+
+                <div class="text-center mt-8">
+                    <button id="reset-btn" class="text-blue-600 font-semibold hover:underline">
+                        Analyze Another File
+                    </button>
+                </div>
+            </div>
+            
+            <div id="loading-spinner" class="hidden text-center py-12">
+                <svg class="animate-spin h-12 w-12 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-4 text-lg font-semibold text-gray-700">Analyzing traffic... this may take a moment.</p>
+            </div>
+        </main>
+
+        <footer class="text-center mt-12 text-gray-500">
+            <p>&copy; 2025 Your Name. Thesis Project.</p>
+        </footer>
+    </div>
+
+    <script>
+        const fileDropZone = document.getElementById('file-drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const browseBtn = document.getElementById('browse-btn');
+        const analyzeBtn = document.getElementById('analyze-btn');
+        const fileInfo = document.getElementById('file-info');
+        
+        const uploadSection = document.getElementById('upload-section');
+        const resultsSection = document.getElementById('results-section');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const resetBtn = document.getElementById('reset-btn');
+
+        const resultCard = document.getElementById('result-card');
+        const resultVerdict = document.getElementById('result-verdict');
+        const resultDetails = document.getElementById('result-details');
+
+        let selectedFile = null;
+
+        // --- Event Listeners ---
+        fileDropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            fileDropZone.classList.add('dragover');
+        });
+
+        fileDropZone.addEventListener('dragleave', () => {
+            fileDropZone.classList.remove('dragover');
+        });
+
+        fileDropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            fileDropZone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+
+        browseBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) {
+                handleFile(fileInput.files[0]);
+            }
+        });
+
+        analyzeBtn.addEventListener('click', () => {
+            if (selectedFile) {
+                uploadAndAnalyze(selectedFile);
+            }
+        });
+
+        resetBtn.addEventListener('click', () => {
+            resetUI();
+        });
+
+        // --- Functions ---
+        function handleFile(file) {
+            selectedFile = file;
+            fileInfo.textContent = `Selected file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+            fileInfo.classList.remove('hidden');
+            analyzeBtn.disabled = false;
+        }
+
+        function uploadAndAnalyze(file) {
+            uploadSection.classList.add('hidden');
+            loadingSpinner.classList.remove('hidden');
+
+            // THIS IS A MOCK API CALL.
+            // In a real application, you would send the 'file' object
+            // to your backend server using the Fetch API.
+            // For example:
+            /*
+            const formData = new FormData();
+            formData.append('traffic_file', file);
+
+            fetch('http://your-backend-api.com/analyze', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                displayResults(data);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                displayResults({ verdict: 'Error', details: 'Failed to connect to the analysis server.' });
+            });
+            */
+            
+            // Simulating a delay for the mock API call
+            setTimeout(() => {
+                // Mock responses for demonstration
+                const mockResults = [
+                    { verdict: 'Benign', details: 'The traffic appears to be normal. The anomaly detector classified it as safe.', color: 'green' },
+                    { verdict: 'DDoS Attack', details: 'The anomaly detector flagged the traffic as suspicious. The classifier identified it as a Distributed Denial of Service (DDoS) attack.', color: 'red' },
+                    { verdict: 'Unknown Anomaly', details: 'The anomaly detector flagged the traffic as suspicious, but the classifier could not match it to a known attack signature. This could be a novel threat.', color: 'orange' }
+                ];
+                const randomResult = mockResults[Math.floor(Math.random() * mockResults.length)];
+                displayResults(randomResult);
+            }, 3000); // 3-second delay
+        }
+        
+        function displayResults(data) {
+            loadingSpinner.classList.add('hidden');
+            resultsSection.classList.remove('hidden');
+
+            resultVerdict.textContent = data.verdict;
+            resultDetails.textContent = data.details;
+
+            // Update card color based on verdict
+            resultCard.classList.remove('bg-green-100', 'bg-red-100', 'bg-orange-100', 'text-green-800', 'text-red-800', 'text-orange-800');
+            resultVerdict.classList.remove('text-green-600', 'text-red-600', 'text-orange-600');
+
+            if (data.color === 'green') {
+                resultCard.classList.add('bg-green-100', 'text-green-800');
+                resultVerdict.classList.add('text-green-600');
+            } else if (data.color === 'red') {
+                resultCard.classList.add('bg-red-100', 'text-red-800');
+                resultVerdict.classList.add('text-red-600');
+            } else if (data.color === 'orange') {
+                 resultCard.classList.add('bg-orange-100', 'text-orange-800');
+                 resultVerdict.classList.add('text-orange-600');
+            }
+        }
+
+        function resetUI() {
+            resultsSection.classList.add('hidden');
+            uploadSection.classList.remove('hidden');
+            fileInfo.classList.add('hidden');
+            analyzeBtn.disabled = true;
+            selectedFile = null;
+            fileInput.value = ''; // Reset file input
+        }
+    </script>
+
+</body>
+</html>
