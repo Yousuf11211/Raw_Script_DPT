@@ -6,7 +6,7 @@ from imblearn.under_sampling import RandomUnderSampler
 from imblearn.over_sampling import SMOTE, BorderlineSMOTE, ADASYN
 
 # ===== CONFIGURATION =====
-INPUT_FOLDER = "Attack_Training"
+INPUT_FOLDER = "Training_2018"
 OUTPUT_FOLDER = "Attack_Balanced"
 
 
