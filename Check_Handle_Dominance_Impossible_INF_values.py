@@ -4,7 +4,7 @@ import numpy as np
 from collections import Counter, defaultdict
 
 # --- GLOBAL CONFIGURATION VARIABLES ---
-INPUT_FOLDER = "Downscale_Csv_2018"
+INPUT_FOLDER = "Training_2018"
 CHUNK_SIZE = 1_000_000
 DOMINANCE_RANGES = [
     (0.95, 1.01, "95-100%"), (0.90, 0.95, "90-95%"),
