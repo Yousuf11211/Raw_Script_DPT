@@ -2,8 +2,8 @@ import os
 import pandas as pd
 
 # --- 1. Configuration ---
-input_folder = "Raw_Data_2018/BCCC-CIC-CSE-IDS2018"
-output_folder = "Column_Cleaned"
+input_folder = "Testing_2018"
+output_folder = "Test_Ready_2018"
 
 columns_to_remove = [
     'flow_id','src_ip','dst_ip','timestamp','active_cov','active_max','active_mean','active_median',
