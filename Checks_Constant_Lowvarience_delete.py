@@ -4,10 +4,10 @@ from collections import defaultdict
 
 # --- 1. Configuration ---
 # Set the folder where your original CSV files are located.
-INPUT_PATH = "Downscale_Csv_2018"
+INPUT_PATH = "Attacks"
 
 # Set the folder where the new, cleaned CSV files will be saved.
-OUTPUT_FOLDER = "D_Cleaned_CSVs"
+OUTPUT_FOLDER = "Attacks_Removed_Constant"
 
 # Define the number of rows to read at a time.
 CHUNK_SIZE = 1_000_000
