@@ -11,7 +11,7 @@ def count_column_duplicate(
     save_results: bool = False
 ) -> Dict[str, Tuple[int, Optional[List[str]]]]:
 
-
+    print("Counting Columns and Duplicate Columns...")
     column_data = {}
 
     # Check if the input folder exists
