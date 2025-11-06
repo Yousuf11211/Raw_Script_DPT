@@ -4,7 +4,7 @@ import numpy as np
 from collections import Counter, defaultdict
 
 # --- GLOBAL CONFIGURATION VARIABLES ---
-INPUT_FOLDER = "Training_2018"
+INPUT_FOLDER = "Training_isolation_model"
 CHUNK_SIZE = 1_000_000
 DOMINANCE_RANGES = [
     (0.95, 1.01, "95-100%"), (0.90, 0.95, "90-95%"),
@@ -18,7 +18,7 @@ NEVER_NEGATIVE_KEYWORDS = [
 ]
 CAN_BE_NEGATIVE_KEYWORDS = ['skew', 'cov', 'delta']
 PORT_COLUMNS = ['src_port', 'dst_port']
-INF_THRESHOLD = 0.30
+INF_THRESHOLD = 0
 
 
 # ==============================================================================
@@ -138,6 +138,7 @@ def run_data_validation(file_path):
                     mask = numeric_col < 0
                     results['negative_issues'][col] = {'count': mask.sum(), 'rows': list(df[mask].index),
                                                        'labels': df.loc[mask, 'label'].value_counts().to_dict()}
+                    print(results)
         for col in PORT_COLUMNS:
             if col in df.columns:
                 numeric_col = pd.to_numeric(df[col], errors='coerce')
@@ -145,6 +146,7 @@ def run_data_validation(file_path):
                     mask = ~numeric_col.between(0, 65535)
                     results['port_issues'][col] = {'count': mask.sum(), 'rows': list(df[mask].index),
                                                    'labels': df.loc[mask, 'label'].value_counts().to_dict()}
+                    print(results)
         invalid_indices = set()
         for group in results.values():
             for info in group.values():
@@ -152,6 +154,8 @@ def run_data_validation(file_path):
         if not invalid_indices:
             print("\nNo invalid rows to clean.")
             return
+        print(f" {invalid_indices} invalid rows to clean.")
+        print(results)
         print(f"\nFound {len(invalid_indices)} unique rows with invalid values.")
         if input("Remove invalid rows and save new file? (y/n): ").lower() == 'y':
             df_clean = df.drop(index=list(invalid_indices)).copy()
