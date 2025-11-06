@@ -1,0 +1,31 @@
+# Ignore Data folder 2017
+2017/
+
+2018_all_data/
+
+# Attack Details
+a/
+
+Attack_Model/
+
+Attacks_Cleaned/
+
+Benign/
+IDS2018/
+
+Normalized_SET/
+
+Testing_Attack
+
+Testing_isolation_model_cleaned
+
+Training_Attack
+
+# Large Dataset
+BCC_2017.zip
+BCC_2018.zip
+
+#
+Attacks_Removed_Constant.zip
+
+Benign.zip
