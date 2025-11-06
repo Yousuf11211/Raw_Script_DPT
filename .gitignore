@@ -31,3 +31,8 @@ Attacks_Removed_Constant.zip
 Benign.zip
 
 Label_matching.csv
+
+
+.idea/
+
+env/
