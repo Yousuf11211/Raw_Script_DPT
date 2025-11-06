@@ -5,11 +5,14 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
 import joblib
+import sklearn
+print(f"Scikit-learn Version: {sklearn.__version__}")
+
 
 # ===== CONFIGURATION =====
-input_folder = "Balanced_Training_2018"  # Folder containing your CSV files
-model_folder = "Model_2018"
-report_folder = "Testing_2018_report"
+input_folder = "Training_Attack"  # Folder containing your CSV files
+model_folder = "Attack_Model"
+report_folder = "Model_report"
 os.makedirs(model_folder, exist_ok=True)
 os.makedirs(report_folder, exist_ok=True)
 
