@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 
 # Main folder with all raw datasets
-main_folder = "Downscale_Csv_2018"
+main_folder = "Attacks_Removed_Constant"
 
 # Ask user if reports should be saved
 save_reports = input("Do you want to save reports to files? (y/n): ").strip().lower() == "y"
