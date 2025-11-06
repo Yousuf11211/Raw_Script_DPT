@@ -2,7 +2,7 @@ import os
 import pandas as pd
 
 # ========= CONFIG =========
-INPUT_FOLDER = "Balanced_Training_2018"
+INPUT_FOLDER = "Testing_isolation_model_cleaned"
 CHUNK_SIZE = 1_500_000  # For big files
 
 # ======= ASK USER WHAT TO DO ========
