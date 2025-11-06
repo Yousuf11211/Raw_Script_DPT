@@ -4,8 +4,8 @@ import numpy as np
 from collections import Counter, defaultdict
 
 # --- 1. GLOBAL CONFIGURATION ---
-INPUT_FOLDER = "Downscale_Csv_2018"
-OUTPUT_FOLDER = "Cleaned_Files_2018"
+INPUT_FOLDER = "Normalized_SET"
+OUTPUT_FOLDER = "Normalized_Constant_Handled"
 CHUNK_SIZE = 1_000_000
 
 # --- Task 1 Config ---
