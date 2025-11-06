@@ -2,10 +2,10 @@ import os
 import pandas as pd
 from collections import Counter, defaultdict
 
-PARENT_FOLDER = "Proportional_Data_V2/Attacks"   # which has the csv
-REPORTS_FOLDER = "Cic2017/Labelled_Reports_T"        # saves the reports here
-TRAIN_FOLDER = "Training_2018"             #savves training spli
-TEST_FOLDER = "Testing_20187"                  #saves testing split
+PARENT_FOLDER = "Attacks_Cleaned"   # which has the csv
+REPORTS_FOLDER = "a"        # saves the reports here
+TRAIN_FOLDER = "Training_Attack"             #savves training spli
+TEST_FOLDER = "Testing_Attack"                  #saves testing split
 TRAIN_CSV_NAME = "training.csv"          #file name for training split
 TEST_CSV_NAME = "test.csv"               #file name for testing split
 CHUNK_SIZE = 1_500_000
