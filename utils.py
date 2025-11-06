@@ -144,3 +144,112 @@ def count_column_duplicate(
 
 
 # Function to count the number of Rows and Duplicate Rows, then Delete Duplicate Rows save new CSV
+def count_row_duplicate(
+        input_folder: str,
+        output_folder: str,
+        txtfile_name: str,
+        save_results: bool = False,
+        chunksize: Optional[int] = None
+) -> Dict[str, Tuple[int, int]]:  # Returns a Dictionary mapping files to tuple for total rows and duplicate rows
+
+    print("Counting Rows and Duplicate Rows...")
+    row_data = {}
+
+    # Check if the input folder exists
+    if not os.path.exists(input_folder):
+        print(f"The input folder '{input_folder}' does not exist.")
+        return {}
+
+    # Make sure the output folder exists
+    os.makedirs(output_folder, exist_ok=True)
+
+    found_csv = False  # No Csv files found
+
+    for root, _, files in os.walk(input_folder):
+        for file_name in files:
+            if file_name.endswith(".csv"):
+                found_csv = True  # Found CSV
+                file_path = os.path.join(root, file_name)
+
+                # Start processing
+                total_rows = 0
+                duplicate_rows_removed = 0
+                is_first_chunk = True
+
+                # FIX 3: Added prefix to prevent confusion/overwriting from other cleaning steps
+                output_file_name = f"Cleaned_{file_name}"
+                output_file_path = os.path.join(output_folder, output_file_name)
+
+                try:  # Reading Full file in chunks
+                    reader = pd.read_csv(
+                        file_path,
+                        sep=',',
+                        iterator=True,
+                        chunksize=chunksize
+                    )
+
+                    # Process file chunk-by-chunk
+                    for chunk in reader:
+                        initial_chunk_size = len(chunk)
+
+                        # Row Counting
+                        total_rows += initial_chunk_size
+
+                        # Duplicate check - Keep the first occurrence (default)
+                        df_clean_chunk = chunk.drop_duplicates(keep='first')
+
+                        # Count Duplicates
+                        rows_removed_in_chunk = initial_chunk_size - len(df_clean_chunk)
+                        duplicate_rows_removed += rows_removed_in_chunk
+
+                        # Save Cleaned Chunk
+                        df_clean_chunk.to_csv(
+                            output_file_path,
+                            mode='w' if is_first_chunk else 'a',
+                            header=is_first_chunk,
+                            index=False
+                        )
+                        is_first_chunk = False
+
+                except pd.errors.EmptyDataError:
+                    row_data[file_path] = (0, 0)
+                    print(f" Warning: File is empty (0 rows): {file_path}")
+                except Exception as e:
+                    print(f"Error reading {file_path}: {e}")
+                else:
+                    # FIX 2: Store results and print statements moved outside the chunk loop (using 'else' after try/except)
+                    # Store results ONLY after the file is completely processed
+                    row_data[file_path] = (total_rows, duplicate_rows_removed)
+
+                    print(f"File: {file_name} processed.")
+                    print(f"    Total Rows: {total_rows}, Duplicates Removed: {duplicate_rows_removed}")
+                    print(f"    Saved file to {output_file_path}")
+
+    # Check for no files found
+    if not found_csv:
+        print(f"No CSV files found in the {input_folder} folder.")
+
+    # Optional save results (Report summary)
+    if save_results:
+        output_path = os.path.join(output_folder, txtfile_name)
+        with open(output_path, 'w') as outfile:
+            outfile.write("--- Row Count and Duplication Removal Summary ---\n\n")
+
+            if not row_data:
+                outfile.write(f"No CSV files found in the {input_folder} folder.\n")
+
+            for file_path, (total, removed) in row_data.items():
+                relative_path = os.path.relpath(file_path, input_folder)
+                outfile.write(f"File: {relative_path}\n")
+                outfile.write(f"Total Rows (Initial): {total}\n")
+                outfile.write(f"Duplicate Rows Removed: {removed}\n")
+                outfile.write(f"Final Clean Rows: {total - removed}\n")
+                outfile.write("---\n")
+
+        if row_data:
+            print(f"\nResults saved to: {output_path}")
+
+    return row_data
+
+
+
