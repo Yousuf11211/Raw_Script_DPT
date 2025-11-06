@@ -4,9 +4,9 @@ from collections import defaultdict
 import math
 
 # --- 1. Global Configuration ---
-INPUT_FOLDER = "Downscale_Csv_2018_Cleaned"
-OUTPUT_FOLDER = "Proportional_Data_V2"
-CHUNK_SIZE = 2_500_000
+INPUT_FOLDER = "Normalized_SET"
+OUTPUT_FOLDER = "Separated_Model_Data"
+CHUNK_SIZE = 500_000
 LABEL_COLUMN_NAME = 'label'
 BENIGN_LABEL_VALUE = 'benign'
 
