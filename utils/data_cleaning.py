@@ -1,6 +1,8 @@
 import polars as pl
 import streamlit as st
 from typing import Dict, Tuple, Optional, List
+import pandas as pd
+from functools import reduce
 
 # Function to count the number of Columns, and duplicate columns(Remove if any) print them optionally save the results
 def get_duplicate_columns(file_path: str) -> Tuple[int, Optional[List[str]]]:
@@ -108,6 +110,79 @@ def drop_duplicate_rows_lazy(lf: pl.LazyFrame) -> pl.LazyFrame:
     return lf.unique()
 
 
-# TODO add missing value handling
+# Note: This function is EAGER (uses .collect()) because you need the final counts/percentages
+# to display in the UI. We run a minimal aggregation plan to keep it memory efficient.
+
+def get_missing_and_infinite_report(lf: pl.LazyFrame) -> Tuple[int, pd.DataFrame]:
+    """
+    Calculates the count and percentage of missing (null) and infinite (inf)
+    values for all columns in the LazyFrame.
+
+    Returns: (total_rows_count, report_df_pandas)
+    """
+    st.info("Calculating missing/inf values across all columns...")
+
+    # 1. Get total rows (Eager count is efficient)
+    total_rows = lf.select(pl.count()).collect().item()
+    if total_rows == 0:
+        return 0, pd.DataFrame()
+
+    # 2. Build the Aggregation Plan
+
+    # a) Missing (Null) Counts: Polars has a direct method: lf.null_count()
+    null_counts_lf = lf.null_count()
+
+    # b) Infinite Counts: Polars does not have a direct inf_count. We must build an expression.
+    # We only check for inf on floating-point columns (pl.Float64)
+    inf_expressions = [
+        pl.col(col).is_infinite().sum().alias(f"inf_{col}")
+        for col, dtype in lf.schema.items() if dtype in (pl.Float32, pl.Float64)
+    ]
+
+    # Combine null counts and inf counts into a single aggregation
+    if inf_expressions:
+        # If there are float columns, collect both nulls and infs
+        full_report_df = null_counts_lf.select(inf_expressions).collect()
+    else:
+        # If no float columns, just collect nulls
+        full_report_df = null_counts_lf.collect()
+
+    # 3. Format the Report (Convert to Pandas for easier reporting/UI display)
+
+    # The result is a single-row Polars DataFrame. Convert and transpose it.
+    report_df = full_report_df.transpose(include_header=True, header_name="Feature", column_names=["Value"]).to_pandas()
+    report_df.set_index("Feature", inplace=True)
+    report_df.rename(columns={"Value": "Count"}, inplace=True)
+
+    # 4. Process the Report
+
+    report_data = []
+
+    for feature_name, row_data in report_df.iterrows():
+        count = row_data['Count']
+
+        # Check if this is a NULL count or an INF count
+        if feature_name.endswith('_null_count'):
+            original_col = feature_name[:-11]
+            report_type = 'Missing (NULL)'
+        elif feature_name.startswith('inf_'):
+            original_col = feature_name[4:]
+            report_type = 'Infinite (INF)'
+        else:
+            continue  # Skip non-count columns
+
+        if count > 0:
+            percentage = (count / total_rows) * 100 if total_rows > 0 else 0
+            report_data.append({
+                'Feature': original_col,
+                'Type': report_type,
+                'Count': count,
+                'Percentage': round(percentage, 4)
+            })
+
+    # Final Report DataFrame (Pandas)
+    final_report_df = pd.DataFrame(report_data)
+
+    return total_rows, final_report_df
 
 
