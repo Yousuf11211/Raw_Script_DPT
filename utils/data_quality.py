@@ -146,3 +146,59 @@ def drop_columns_lazy(lf: pl.LazyFrame, columns: List[str]) -> pl.LazyFrame:
     if not columns:
         return lf
     return lf.drop(columns)
+
+
+# ---- Mixed-Type Analysis ----
+
+def analyze_mixed_types(lf: pl.LazyFrame) -> pd.DataFrame:
+    """
+    For each column, compute counts of value categories: NaN (null or NaN), inf, integer, float, string.
+    Returns a pandas DataFrame with rows per Feature and columns: NaN, inf, integer, float, string.
+    """
+    st.info("Analyzing mixed types per column (eager aggregation)...")
+    exprs = []
+    for col in lf.columns:
+        c = pl.col(col)
+        num = c.cast(pl.Float64, strict=False)
+        # base masks
+        is_null = c.is_null()
+        is_nan = num.is_nan()
+        is_inf = num.is_infinite()
+        is_num_not_null = num.is_not_null()
+        # integer if numeric, not inf, not nan, and floor equals value
+        is_integer = is_num_not_null & (~is_inf) & (~is_nan) & (num.floor() == num)
+        # float if numeric, not integer, not inf, not nan
+        is_float = is_num_not_null & (~is_inf) & (~is_nan) & (~(num.floor() == num))
+        # string if not null and numeric cast failed
+        is_string = (~is_null) & num.is_null()
+        # NaN: treat nulls OR numeric NaN as NaN bucket
+        is_NaN_bucket = is_null | is_nan
+
+        exprs.extend([
+            is_NaN_bucket.sum().alias(f"NaN__{col}"),
+            is_inf.sum().alias(f"inf__{col}"),
+            is_integer.sum().alias(f"integer__{col}"),
+            is_float.sum().alias(f"float__{col}"),
+            is_string.sum().alias(f"string__{col}"),
+        ])
+
+    out = lf.select(exprs).collect()
+    # Convert to long pandas format per feature
+    df = out.to_pandas()
+    # df columns like 'NaN__col', 'inf__col'...
+    rows = []
+    for col in lf.columns:
+        row = { 'Feature': col }
+        for k in ['NaN', 'inf', 'integer', 'float', 'string']:
+            key = f"{k}__{col}"
+            row[k] = int(df.iloc[0][key]) if key in df.columns else 0
+        rows.append(row)
+    result = pd.DataFrame(rows)
+    return result
+
+
+def coerce_columns_to_numeric(lf: pl.LazyFrame, columns: List[str], dtype: pl.DataType = pl.Float64) -> pl.LazyFrame:
+    """Lazily cast selected columns to a numeric type (default Float64) with strict=False."""
+    if not columns:
+        return lf
+    return lf.with_columns([pl.col(c).cast(dtype, strict=False).alias(c) for c in columns if c in lf.columns])
