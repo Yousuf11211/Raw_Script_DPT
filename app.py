@@ -10,7 +10,7 @@ from utils.data_cleaning import (
     get_row_and_duplicate_counts,
     drop_duplicate_rows_lazy
 )
-from utils.data_analysis import get_class_distribution_report
+from utils.data_analysis import get_class_distribution_report, get_dominance_report # <-- ADD THIS IMPORT
 from io import BytesIO
 
 # --- CONSTANTS AND INITIALIZATION ---
@@ -353,42 +353,62 @@ if lf_current is not None:
     # ----------------------------------------------------
     # 📈 RESULTS & METRICS TAB (Placeholder)
     # ----------------------------------------------------
-        # ----------------------------------------------------
-        # 📈 RESULTS & METRICS TAB
-        # ----------------------------------------------------
         with results_tab:
-            st.header("4. Data Analysis & Results")
+            st.header("4. Data Analysis & Final Reports")
 
             # Use the current cleaned LazyFrame
             lf_final = st.session_state['current_lazy_frame']
 
-            st.markdown("#### Overall Class Distribution Analysis")
+            if lf_final is None:
+                st.warning("Please ensure a dataset is loaded and cleaned in the previous tabs.")
 
-            if st.button("Calculate & Visualize Distribution", key="calc_dist_btn"):
-                with st.spinner("Running global aggregation and generating plot..."):
-                    summary_df, fig = get_class_distribution_report(lf_final)
-                    st.session_state['class_summary'] = summary_df
-                    st.session_state['class_fig'] = fig
-                    st.session_state['dist_done'] = True
+            else:
+                # Initialize state for this section
+                if 'dominance_done' not in st.session_state:
+                    st.session_state['dominance_done'] = False
 
-            if st.session_state.get('dist_done'):
-                if st.session_state['class_fig']:
-                    st.subheader("Visualization")
-                    st.pyplot(st.session_state['class_fig'])
+                st.markdown("#### Column Dominance Report")
 
-                if not st.session_state['class_summary'].empty:
-                    st.subheader("Label Counts Summary")
-                    st.dataframe(st.session_state['class_summary'], use_container_width=True)
+                if st.button("Generate Dominance Report (Heavy Aggregation)", key="generate_dom_report",
+                             use_container_width=True):
+                    with st.spinner("Running complex aggregation across all columns..."):
+                        # Call the new Polars function
+                        dominance_summary, label_df = get_dominance_report(lf_final)
 
-                    # Add a download button for the summary CSV
-                    csv_output = st.session_state['class_summary'].to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="Download Label Distribution CSV",
-                        data=csv_output,
-                        file_name='Overall_Label_Distribution.csv',
-                        mime='text/csv',
-                        key='download_dist_csv'
-                    )
+                        # Store results in session state
+                        st.session_state['dominance_summary'] = dominance_summary
+                        st.session_state['label_df'] = label_df
+                        st.session_state['dominance_done'] = True
+                        st.rerun()  # Rerun to display persistent results
+
+                st.markdown("---")
+
+                if st.session_state.get('dominance_done'):
+                    dominance_summary = st.session_state['dominance_summary']
+                    label_df = st.session_state['label_df']
+
+                    if not dominance_summary.empty:
+
+                        # 1. Display Label Distribution
+                        st.subheader("Global Label Distribution")
+                        st.dataframe(label_df, use_container_width=True)
+
+                        # 2. Display Column Dominance Summary
+                        st.subheader("Column Value Dominance Summary")
+                        st.info(
+                            "The table below summarizes which percentage range each column's most frequent value falls into.")
+
+                        # Show only key columns for quick overview
+                        display_cols = ['Feature', 'Most Common Value', 'Ratio', 'Dominance Range']
+                        st.dataframe(dominance_summary[display_cols], use_container_width=True)
+
+                        # Future expansion: Add an expander to show detailed value counts
+                        with st.expander("Show Detailed Value Counts by Column"):
+                            # This is where you would iterate through the full reports stored in the DF
+                            st.write("Detailed per-column value counts would be displayed here.")
+
+                    else:
+                        st.error("Could not generate dominance report. Check for errors in data analysis.")
 
 
 else:
