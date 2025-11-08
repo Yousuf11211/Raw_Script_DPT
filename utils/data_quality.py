@@ -110,3 +110,39 @@ def impute_inf_with_median(lf: pl.LazyFrame, columns: Optional[List[str]] = None
 
     st.success(f"Prepared lazy imputation for {len(replacements)} columns (replace +/-inf with medians).")
     return lf.with_columns(replacements), medians
+
+
+# ---- Constant / Low-Variance Analysis ----
+
+def unique_counts_report(lf: pl.LazyFrame) -> pd.DataFrame:
+    """Return a pandas DataFrame with columns: Feature, UniqueCount for all columns."""
+    st.info("Computing unique value counts per column (eager aggregation)...")
+    try:
+        unique_df = lf.select(pl.all().n_unique()).collect()
+        report = unique_df.transpose(include_header=True, header_name="Feature", column_names=["UniqueCount"]).to_pandas()
+        report["UniqueCount"] = report["UniqueCount"].astype(int)
+        return report
+    except Exception as e:
+        st.error(f"Failed to compute unique counts: {e}")
+        return pd.DataFrame(columns=["Feature", "UniqueCount"])
+
+
+def analyze_constant_low_variance(lf: pl.LazyFrame, low_var_threshold: int) -> Tuple[List[str], List[str], pd.DataFrame]:
+    """
+    Identify constant columns (n_unique == 1) and low-variance columns (2..threshold).
+
+    Returns: (constant_cols, low_var_cols, unique_counts_df)
+    """
+    report = unique_counts_report(lf)
+    if report.empty:
+        return [], [], report
+    constant_cols = report.loc[report["UniqueCount"] == 1, "Feature"].tolist()
+    low_var_cols = report.loc[(report["UniqueCount"] >= 2) & (report["UniqueCount"] <= int(low_var_threshold)), "Feature"].tolist()
+    return constant_cols, low_var_cols, report
+
+
+def drop_columns_lazy(lf: pl.LazyFrame, columns: List[str]) -> pl.LazyFrame:
+    """Drop provided columns lazily."""
+    if not columns:
+        return lf
+    return lf.drop(columns)
