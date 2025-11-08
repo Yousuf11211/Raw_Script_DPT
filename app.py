@@ -1,17 +1,16 @@
 import streamlit as st
 import polars as pl
 import psutil
-import time
 import os
-import pandas as pd # Kept for st.dataframe compatibility
 from utils.data_cleaning import (
     get_duplicate_columns,
     drop_duplicate_columns_lazy,
     get_row_and_duplicate_counts,
-    drop_duplicate_rows_lazy
+    drop_duplicate_rows_lazy,
+    get_validation_report_and_filter_plan
 )
-from utils.data_analysis import get_class_distribution_report, get_dominance_report # <-- ADD THIS IMPORT
-from io import BytesIO
+from utils.data_analysis import get_class_distribution_report, get_dominance_report, get_value_label_breakdown
+from utils.data_quality import analyze_inf_columns, drop_inf_columns_lazy, impute_inf_with_median
 
 # --- CONSTANTS AND INITIALIZATION ---
 
@@ -29,6 +28,10 @@ if 'browser_current_path' not in st.session_state:
 
 if 'current_lazy_frame' not in st.session_state:
     st.session_state['current_lazy_frame'] = None
+
+# Added initialization for applied filters tracking
+if 'applied_filters' not in st.session_state:
+    st.session_state['applied_filters'] = []
 
 # --- CONFIGURATION ---
 st.set_page_config(
@@ -256,6 +259,42 @@ if lf_current is not None:
     with cleaning_tab:
         st.subheader("2. Data Cleaning & Duplication Removal")
 
+        if st.session_state['current_lazy_frame'] is None:
+            st.warning("Please load a dataset in the Data Selection tab first.")
+        else:
+            lf = st.session_state['current_lazy_frame']
+            initial_row_count = lf.select(pl.count()).collect().item()
+            st.markdown(f"**Current Rows:** {initial_row_count:,}")
+            st.markdown(f"**Current Columns:** {len(lf.columns):,}")
+            st.markdown("---")
+
+            st.subheader("Row Validation (Negative Values & Ports)")
+            st.markdown("This check identifies and removes rows where: "
+                        "\n- A non-negative field (e.g., `duration`, `count`) is less than 0."
+                        "\n- A port field (`src_port`, `dst_port`) is outside the 0-65535 range.")
+
+            if st.button("Run Data Validation & Filter", key="run_validation_filter", use_container_width=True):
+                with st.spinner("Executing EAGER query to find invalid rows..."):
+                    # CALL THE NEW POLARS FUNCTION
+                    lf_validated, report = get_validation_report_and_filter_plan(lf)
+
+                st.session_state['validation_report'] = report
+                st.session_state['current_lazy_frame'] = lf_validated
+                st.session_state['applied_filters'].append("Row Validation & Filtering")
+                st.rerun()  # Rerun to display persistent results
+
+            # Display the results of the last validation run
+            report = st.session_state.get('validation_report')
+            if report and report['invalid_count'] > 0:
+                st.error(f"**{report['invalid_count']:,} Rows Removed.**")
+                st.markdown("###### Label Breakdown of Removed Rows:")
+                st.json(report['label_breakdown'])
+
+            elif report and report['invalid_count'] == 0:
+                st.success("Validation complete. No invalid rows found.")
+
+            st.markdown("---")
+
         # Initialize session state keys to control visibility and storage of cleaning results
         if 'col_check_done' not in st.session_state: st.session_state['col_check_done'] = False
         if 'row_check_done' not in st.session_state: st.session_state['row_check_done'] = False
@@ -342,6 +381,51 @@ if lf_current is not None:
         # Update the main working LazyFrame for the next step
         st.session_state['current_lazy_frame'] = lf_temp
 
+        # INF Columns Analysis & Handling Section
+        st.markdown("---")
+        st.subheader("INF Value Analysis & Handling")
+        st.markdown("Identify columns containing infinite (+/-inf) values and optionally drop or impute them.")
+
+        if st.session_state['current_lazy_frame'] is not None:
+            lf_inf = st.session_state['current_lazy_frame']
+            if st.button("Analyze INF Columns", key="analyze_inf_btn", use_container_width=True):
+                with st.spinner("Scanning for INF values (numeric columns)..."):
+                    total_rows_inf, inf_report_df = analyze_inf_columns(lf_inf)
+                st.session_state['inf_total_rows'] = total_rows_inf
+                st.session_state['inf_report_df'] = inf_report_df
+
+            inf_report_df = st.session_state.get('inf_report_df')
+            if inf_report_df is not None:
+                if inf_report_df.empty:
+                    st.success("No INF values detected in numeric columns.")
+                else:
+                    st.dataframe(inf_report_df, use_container_width=True)
+
+                    col_a, col_b, col_c = st.columns(3)
+                    with col_a:
+                        threshold = st.number_input("Drop Threshold (%)", min_value=0.0, max_value=100.0, value=50.0, step=1.0,
+                                                     help="Columns with INF percentage above this threshold will be dropped lazily.")
+                    with col_b:
+                        if st.button("Drop Columns Above Threshold", key="drop_inf_cols", use_container_width=True):
+                            lf_new, dropped = drop_inf_columns_lazy(lf_inf, threshold_percent=threshold)
+                            if dropped:
+                                st.session_state['current_lazy_frame'] = lf_new
+                                st.session_state['applied_filters'].append(f"Drop INF > {threshold:.1f}%: {len(dropped)} cols")
+                                st.success(f"Scheduled lazy drop of {len(dropped)} INF-heavy columns.")
+                            else:
+                                st.info("No columns exceeded the threshold.")
+                    with col_c:
+                        if st.button("Impute INF with Median", key="impute_inf_btn", use_container_width=True):
+                            lf_imp, medians = impute_inf_with_median(lf_inf)
+                            if medians:
+                                st.session_state['current_lazy_frame'] = lf_imp
+                                st.session_state['applied_filters'].append(f"Impute INF medians ({len(medians)} cols)")
+                                st.success(f"Prepared lazy imputation for {len(medians)} columns.")
+                                with st.expander("Median Values Used"):
+                                    st.json(medians)
+                            else:
+                                st.info("No INF values requiring imputation detected.")
+
     # ----------------------------------------------------
     # 🧠 MODEL TRAINING TAB (Placeholder)
     # ----------------------------------------------------
@@ -353,62 +437,71 @@ if lf_current is not None:
     # ----------------------------------------------------
     # 📈 RESULTS & METRICS TAB (Placeholder)
     # ----------------------------------------------------
-        with results_tab:
-            st.header("4. Data Analysis & Final Reports")
-
-            # Use the current cleaned LazyFrame
-            lf_final = st.session_state['current_lazy_frame']
-
-            if lf_final is None:
-                st.warning("Please ensure a dataset is loaded and cleaned in the previous tabs.")
-
+    with results_tab:
+        st.header("4. Data Analysis & Final Reports")
+        lf_final = st.session_state['current_lazy_frame']
+        if lf_final is None:
+            st.warning("Please ensure a dataset is loaded and cleaned in the previous tabs.")
+        else:
+            st.subheader("Applied Cleaning Steps")
+            if st.session_state['applied_filters']:
+                st.write(st.session_state['applied_filters'])
             else:
-                # Initialize state for this section
-                if 'dominance_done' not in st.session_state:
-                    st.session_state['dominance_done'] = False
+                st.write("No cleaning steps applied yet.")
 
-                st.markdown("#### Column Dominance Report")
+            # Optional: Export current dataset (sample to avoid OOM)
+            with st.expander("Export Current Dataset (sample)"):
+                max_rows = int(lf_final.select(pl.count()).collect().item())
+                sample_n = st.number_input("Rows to export (sample)", min_value=1000, max_value=max_rows, value=min(100000, max_rows), step=1000)
+                if st.button("Prepare CSV", key="prepare_csv_btn"):
+                    with st.spinner(f"Collecting {sample_n:,} rows and preparing CSV..."):
+                        df_export = lf_final.limit(int(sample_n)).collect().to_pandas()
+                        csv_bytes = df_export.to_csv(index=False).encode('utf-8')
+                        st.session_state['export_csv_bytes'] = csv_bytes
+                if 'export_csv_bytes' in st.session_state:
+                    st.download_button("Download CSV", data=st.session_state['export_csv_bytes'], file_name="dataset_sample.csv", mime="text/csv")
 
-                if st.button("Generate Dominance Report (Heavy Aggregation)", key="generate_dom_report",
-                             use_container_width=True):
-                    with st.spinner("Running complex aggregation across all columns..."):
-                        # Call the new Polars function
-                        dominance_summary, label_df = get_dominance_report(lf_final)
+            st.markdown("---")
+            st.subheader("Class Distribution")
+            if st.button("Compute Class Distribution", key="class_dist_btn", use_container_width=True):
+                with st.spinner("Aggregating label counts..."):
+                    class_df, fig = get_class_distribution_report(lf_final)
+                st.session_state['class_df'] = class_df
+                st.session_state['class_fig'] = fig
+            if 'class_df' in st.session_state and not st.session_state['class_df'].empty:
+                st.dataframe(st.session_state['class_df'], use_container_width=True)
+                if st.session_state['class_fig'] is not None:
+                    st.pyplot(st.session_state['class_fig'])
 
-                        # Store results in session state
-                        st.session_state['dominance_summary'] = dominance_summary
-                        st.session_state['label_df'] = label_df
-                        st.session_state['dominance_done'] = True
-                        st.rerun()  # Rerun to display persistent results
+            st.markdown("---")
+            st.subheader("Column Dominance Report")
+            if st.button("Generate Dominance Report", key="dominance_btn", use_container_width=True):
+                with st.spinner("Running dominance aggregation across all columns..."):
+                    dominance_summary, label_df = get_dominance_report(lf_final)
+                st.session_state['dominance_summary'] = dominance_summary
+                st.session_state['dominance_label_df'] = label_df
+            if 'dominance_summary' in st.session_state:
+                dom_df = st.session_state['dominance_summary']
+                label_df = st.session_state.get('dominance_label_df')
+                if not dom_df.empty:
+                    st.subheader("Global Label Distribution")
+                    st.dataframe(label_df, use_container_width=True)
+                    st.download_button("Download Label Distribution (CSV)", data=label_df.to_csv(index=False).encode('utf-8'), file_name="label_distribution.csv", mime="text/csv")
 
-                st.markdown("---")
+                    st.subheader("Dominance Summary")
+                    st.dataframe(dom_df[['Feature','Most Common Value','Ratio','Dominance Range']], use_container_width=True)
+                    st.download_button("Download Dominance Summary (CSV)", data=dom_df.to_csv(index=False).encode('utf-8'), file_name="dominance_summary.csv", mime="text/csv")
 
-                if st.session_state.get('dominance_done'):
-                    dominance_summary = st.session_state['dominance_summary']
-                    label_df = st.session_state['label_df']
-
-                    if not dominance_summary.empty:
-
-                        # 1. Display Label Distribution
-                        st.subheader("Global Label Distribution")
-                        st.dataframe(label_df, use_container_width=True)
-
-                        # 2. Display Column Dominance Summary
-                        st.subheader("Column Value Dominance Summary")
-                        st.info(
-                            "The table below summarizes which percentage range each column's most frequent value falls into.")
-
-                        # Show only key columns for quick overview
-                        display_cols = ['Feature', 'Most Common Value', 'Ratio', 'Dominance Range']
-                        st.dataframe(dominance_summary[display_cols], use_container_width=True)
-
-                        # Future expansion: Add an expander to show detailed value counts
-                        with st.expander("Show Detailed Value Counts by Column"):
-                            # This is where you would iterate through the full reports stored in the DF
-                            st.write("Detailed per-column value counts would be displayed here.")
-
-                    else:
-                        st.error("Could not generate dominance report. Check for errors in data analysis.")
+                    with st.expander("Per-Value Label Breakdown"):
+                        feature = st.selectbox("Select a feature to inspect:", options=list(lf_final.columns))
+                        topn = st.number_input("Top values to show", min_value=5, max_value=100, value=10)
+                        if st.button("Compute Breakdown", key="compute_breakdown_btn"):
+                            with st.spinner("Aggregating value/label breakdown..."):
+                                breakdown_df = get_value_label_breakdown(lf_final, feature=feature, top_n=int(topn))
+                            st.dataframe(breakdown_df, use_container_width=True)
+                            st.download_button("Download Breakdown (CSV)", data=breakdown_df.to_csv(index=False).encode('utf-8'), file_name=f"{feature}_value_label_breakdown.csv", mime="text/csv")
+                else:
+                    st.info("Dominance report is empty or failed.")
 
 
 else:

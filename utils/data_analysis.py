@@ -4,7 +4,7 @@ import polars as pl
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Optional
 
 
 # Note: This function is EAGER because calculating the full distribution requires scanning ALL rows.
@@ -142,3 +142,42 @@ def get_dominance_report(lf: pl.LazyFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         st.success("Dominance and label analysis complete.")
         return dominance_summary_df, label_df
+
+
+def get_value_label_breakdown(lf: pl.LazyFrame, feature: str, top_n: int = 10) -> pd.DataFrame:
+    """
+    For a given feature (column), compute the count of each value and how those counts
+    distribute across labels. Returns a pandas DataFrame sorted by total count desc.
+
+    Columns: Value, Total, <label1>, <label2>, ...
+    """
+    # Identify label column
+    label_col: Optional[str] = None
+    for c in lf.columns:
+        if c.lower() == 'label':
+            label_col = c
+            break
+    if label_col is None:
+        st.warning("No 'Label' column found to compute breakdown.")
+        # Just return value counts
+        vc = (
+            lf.group_by(feature).agg(pl.count().alias('Total')).sort('Total', descending=True).limit(top_n).collect()
+        )
+        return vc.to_pandas().rename(columns={feature: 'Value'})
+
+    # Compute counts grouped by (feature, label)
+    grouped = (
+        lf.group_by([feature, label_col])
+        .agg(pl.count().alias('Count'))
+        .collect()
+    )
+
+    # Pivot to wide format: rows are feature values, columns are labels
+    pivoted = grouped.pivot(index=feature, columns=label_col, values='Count', aggregate_fn='first').fill_null(0)
+
+    # Add total column
+    pivoted = pivoted.with_columns(pl.sum_horizontal(pl.all().exclude(feature)).alias('Total'))
+    # Sort by total desc and limit
+    pivoted = pivoted.sort('Total', descending=True).limit(top_n)
+
+    return pivoted.to_pandas().rename(columns={feature: 'Value'})

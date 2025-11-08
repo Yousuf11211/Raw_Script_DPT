@@ -1,8 +1,7 @@
 import polars as pl
 import streamlit as st
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional, List, Any
 import pandas as pd
-from functools import reduce
 
 # Function to count the number of Columns, and duplicate columns(Remove if any) print them optionally save the results
 def get_duplicate_columns(file_path: str) -> Tuple[int, Optional[List[str]]]:
@@ -133,7 +132,7 @@ def get_missing_and_infinite_report(lf: pl.LazyFrame) -> Tuple[int, pd.DataFrame
     null_counts_lf = lf.null_count()
 
     # b) Infinite Counts: Polars does not have a direct inf_count. We must build an expression.
-    # We only check for inf on floating-point columns (pl.Float64)
+    # We only check for inf on floating-point columns (pl.Float32, pl.Float64)
     inf_expressions = [
         pl.col(col).is_infinite().sum().alias(f"inf_{col}")
         for col, dtype in lf.schema.items() if dtype in (pl.Float32, pl.Float64)
@@ -186,3 +185,103 @@ def get_missing_and_infinite_report(lf: pl.LazyFrame) -> Tuple[int, pd.DataFrame
     return total_rows, final_report_df
 
 
+# --- CONSTANTS FROM ORIGINAL SCRIPT ---
+NEVER_NEGATIVE_KEYWORDS = [
+    'port', 'duration', 'count', 'bytes', 'size', 'rate', 'percentage',
+    'variance', 'std', 'total', 'max', 'min', 'median', 'mode', 'mean',
+    'iat', 'active', 'idle', 'bulk', 'handshake', 'subflow'
+]
+CAN_BE_NEGATIVE_KEYWORDS = ['skew', 'cov', 'delta']
+PORT_COLUMNS = ['src_port', 'dst_port']
+
+
+# --- HELPER FUNCTION TO IDENTIFY TARGET COLUMNS ---
+def _identify_target_columns(lf: pl.LazyFrame) -> Dict[str, list]:
+    """Identifies columns that must be non-negative based on keywords."""
+    target_cols = {
+        'non_negative': [],
+        'port_range': []
+    }
+
+    for col in lf.columns:
+        col_lower = col.lower()
+
+        # Skip columns that can be negative
+        if any(kw in col_lower for kw in CAN_BE_NEGATIVE_KEYWORDS):
+            continue
+
+        # Identify non-negative columns
+        if any(kw in col_lower for kw in NEVER_NEGATIVE_KEYWORDS):
+            target_cols['non_negative'].append(col)
+
+        # Identify port columns
+        if col_lower in PORT_COLUMNS:
+            target_cols['port_range'].append(col)
+
+    return target_cols
+
+
+# --- CORE VALIDATION & FILTERING FUNCTION ---
+def get_validation_report_and_filter_plan(lf: pl.LazyFrame) -> Tuple[pl.LazyFrame, Dict[str, Any]]:
+    """
+    Identifies rows with invalid data, generates a report (EAGER), and returns
+    a new LazyFrame with the filter applied (LAZY).
+
+    Returns: (filtered_lazyframe, validation_report_dict)
+    """
+    st.info("Building validation filter plan...")
+
+    # 1. Prepare for EAGER statistics collection
+    # Use updated Polars method (with_row_index) due to deprecation of with_row_count
+    lf_indexed = lf.with_row_index(name="row_index")
+
+    # Check for 'label' column presence
+    label_col = next((col for col in lf.columns if col.lower() == 'label'), None)
+
+    # 2. Build the combined filter expression (The MASK for INVALID rows)
+
+    invalid_mask = pl.lit(False)
+    target_cols = _identify_target_columns(lf)
+
+    # a. Non-Negative Check (e.g., duration < 0)
+    for col in target_cols['non_negative']:
+        # Ensure conversion to numeric, handling potential non-numeric data
+        expr = pl.col(col).cast(pl.Float64, strict=False) < 0
+        invalid_mask = invalid_mask | expr
+        st.caption(f"Added filter: {col} < 0")
+
+    # b. Port Range Check (e.g., port > 65535 or port < 0)
+    for col in target_cols['port_range']:
+        # Port must be between 0 and 65535, inclusive
+        expr = ~pl.col(col).cast(pl.UInt16, strict=False).is_between(0, 65535)
+        invalid_mask = invalid_mask | expr
+        st.caption(f"Added filter: {col} not in [0, 65535]")
+
+    # 3. Collect Statistics on INVALID Rows (EAGER Operation)
+    # We collect just the index and label for the report, NOT the whole DataFrame
+    if label_col:
+        cols_to_collect = [pl.col("row_index"), pl.col(label_col).alias("label")]
+    else:
+        cols_to_collect = [pl.col("row_index")]
+
+    invalid_rows_df = (
+        lf_indexed
+        .filter(invalid_mask)
+        .select(cols_to_collect)
+        .collect()  # <-- EAGER: Executes the plan to find invalid rows
+    )
+
+    # 4. Generate Report
+    report = {
+        'invalid_count': invalid_rows_df.height,
+        'invalid_indices': invalid_rows_df["row_index"].to_list() if invalid_rows_df.height > 0 else [],
+        'label_breakdown': invalid_rows_df["label"].value_counts().to_pandas().set_index('label')['count'].to_dict()
+        if label_col and invalid_rows_df.height > 0 else {}
+    }
+
+    # 5. Apply the filter to the original LazyFrame (LAZY Operation)
+    # We apply the inverse mask (~invalid_mask) to keep only VALID rows.
+    filtered_lf = lf.filter(~invalid_mask)
+
+    st.success(f"Filter plan created. Identified {report['invalid_count']:,} rows for removal.")
+    return filtered_lf, report
