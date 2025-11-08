@@ -1,14 +1,12 @@
 import streamlit as st
 import polars as pl
 import os
-import pandas as pd
-from data_cleaning import (
+from utils.data_cleaning import (
     get_duplicate_columns,
     drop_duplicate_columns_lazy,
     get_row_and_duplicate_counts,
     drop_duplicate_rows_lazy
 )
-from io import BytesIO
 
 # --- CONSTANTS AND INITIALIZATION ---
 
@@ -197,8 +195,7 @@ if lf_current is not None:
 
         st.subheader("Data Preview (First 5 Rows)")
         # Use .fetch() to load only the first few rows safely
-        st.dataframe(lf_current.fetch(5).to_pandas(), use_container_width=True)
-
+        st.dataframe(lf_current.limit(5).collect().to_pandas(), width='stretch')
     except Exception as e:
         st.error(f"Could not calculate initial metrics. Error: {e}")
         st.session_state['current_lazy_frame'] = None
@@ -218,44 +215,87 @@ if lf_current is not None:
     with cleaning_tab:
         st.subheader("2. Data Cleaning & Duplication Removal")
 
-        # --- Column Duplication Check ---
-        st.markdown("#### Column Duplication")
-        file_path = st.session_state.get('current_file_path')
-        lf_temp = lf_current
+        # Initialize session state keys to control visibility and storage of cleaning results
+        if 'col_check_done' not in st.session_state: st.session_state['col_check_done'] = False
+        if 'row_check_done' not in st.session_state: st.session_state['row_check_done'] = False
 
-        if file_path:
-            total_cols, duplicate_names = get_duplicate_columns(file_path)
+        file_path = st.session_state.get('current_file_path')
+        lf_temp = st.session_state['current_lazy_frame']  # Use the current LF
+
+        if not file_path:
+            st.warning("Please select a file in the sidebar to begin checks.")
+
+        # --- Control Buttons for Eager Checks ---
+        st.markdown("#### Run Data Checks")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            # Button for Column Duplication Check (Runs Header Scan)
+            if st.button("Check Column Duplicates", key="col_check_btn", use_container_width=True):
+                if file_path:
+                    with st.spinner("Scanning file header..."):
+                        total_cols, duplicate_names = get_duplicate_columns(file_path)
+                        st.session_state['total_cols'] = total_cols
+                        st.session_state['duplicate_names'] = duplicate_names
+                        st.session_state['col_check_done'] = True
+                        st.rerun()  # Rerun to display results below
+
+        with col2:
+            # Button for Row Duplication Check (Runs Full Aggregation)
+            if st.button("Calculate Row Duplicates", key="row_calc_btn", use_container_width=True):
+                with st.spinner("Counting rows and duplicates..."):
+                    # This is the heavy EAGER calculation
+                    total_rows, duplicate_rows = get_row_and_duplicate_counts(lf_temp)
+                    st.session_state['total_rows'] = total_rows
+                    st.session_state['duplicate_rows'] = duplicate_rows
+                    st.session_state['row_check_done'] = True
+                    # NO st.rerun() here, as metrics update inside the spinner
+
+        st.markdown("---")
+
+        # --- 1. COLUMN DUPLICATION RESULTS & ACTION ---
+        st.markdown("#### Column Duplication Results")
+        if st.session_state['col_check_done']:
+
+            total_cols = st.session_state.get('total_cols', 0)
+            duplicate_names = st.session_state.get('duplicate_names', None)
+
+            st.metric("Total Columns Scanned", total_cols)
 
             if duplicate_names:
-                st.warning(f"⚠️ Found Duplicate Columns: {', '.join(duplicate_names)}. Recommended to drop.")
+                st.warning(f"⚠️ Found {len(duplicate_names)} Duplicate Columns: {', '.join(duplicate_names)}.")
 
-                if st.checkbox("Automatically drop duplicate columns", value=True, key="col_drop_check"):
+                if st.checkbox("Automatically drop duplicate columns (Lazy)", value=True, key="col_drop_check"):
                     lf_temp = drop_duplicate_columns_lazy(lf_temp, duplicate_names)
-                    st.success(f"Column drop applied lazily. Remaining columns: {len(lf_temp.columns)}")
+                    st.success(f"Column drop rule added to plan. Projected columns: {len(lf_temp.columns)}")
 
             else:
                 st.success("✅ No Duplicate Columns Found in header.")
+        else:
+            st.info("Click 'Check Column Duplicates' above to scan file header.")
 
-        # --- Row Duplication Check ---
-        st.markdown("#### Row Duplication")
+        st.markdown("---")
 
-        if st.button("Calculate Row Duplicates", key="row_calc_btn"):
-            with st.spinner("Counting rows and duplicates..."):
-                total_rows, duplicate_rows = get_row_and_duplicate_counts(lf_temp)
-                st.session_state['total_rows'] = total_rows
-                st.session_state['duplicate_rows'] = duplicate_rows
+        # --- 2. ROW DUPLICATION RESULTS & ACTION ---
+        st.markdown("#### Row Duplication Results")
+        if st.session_state['row_check_done']:
 
-        if 'duplicate_rows' in st.session_state and st.session_state['total_rows'] > 0:
             total = st.session_state['total_rows']
             removed = st.session_state['duplicate_rows']
 
-            st.metric("Initial Total Rows", f"{total:,}")
-            st.metric("Detected Duplicate Rows", f"{removed:,}", delta_color="inverse")
+            c3, c4 = st.columns(2)
+            c3.metric("Initial Total Rows", f"{total:,}")
+            c4.metric("Detected Duplicate Rows", f"{removed:,}", delta_color="inverse")
 
             if removed > 0:
-                if st.checkbox("Automatically remove duplicate rows", value=True, key="row_drop_check"):
+                if st.checkbox("Automatically remove duplicate rows (Lazy)", value=True, key="row_drop_check"):
                     lf_temp = drop_duplicate_rows_lazy(lf_temp)
-                    st.success(f"Row duplication removal applied lazily. Final projected rows: {total - removed:,}")
+                    st.success(f"Row duplication removal rule added to plan. Projected final rows: {total - removed:,}")
+
+            else:
+                st.success("✅ No Duplicate Rows Found.")
+        else:
+            st.info("Click 'Calculate Row Duplicates' above to run the full count aggregation.")
 
         # Update the main working LazyFrame for the next step
         st.session_state['current_lazy_frame'] = lf_temp
