@@ -1,12 +1,17 @@
 import streamlit as st
 import polars as pl
+import psutil
+import time
 import os
+import pandas as pd # Kept for st.dataframe compatibility
 from utils.data_cleaning import (
     get_duplicate_columns,
     drop_duplicate_columns_lazy,
     get_row_and_duplicate_counts,
     drop_duplicate_rows_lazy
 )
+from utils.data_analysis import get_class_distribution_report
+from io import BytesIO
 
 # --- CONSTANTS AND INITIALIZATION ---
 
@@ -16,7 +21,7 @@ SCAN_ROOT = os.getcwd()
 EXCLUDE_DIRS = ['temp_uploads', 'venv', 'env', '.git', '__pycache__', '.idea/']
 SCAN_ROOT_DISPLAY = "PROJECT ROOT"
 LOCAL_DATA_PATH = os.path.join(os.getcwd(), 'data',
-                               'fixed_thesis_data.csv')  # Retained for context
+                               'fixed_thesis_data.csv')
 
 # Initialize state variables
 if 'browser_current_path' not in st.session_state:
@@ -60,7 +65,43 @@ def save_uploaded_file_to_temp(uploaded_file):
 
     return temp_path
 
+def get_resource_metrics():
+    """Fetches key CPU and Memory metrics."""
+    cpu_usage = psutil.cpu_percent(interval=None)  # CPU usage across all cores
+    memory_info = psutil.virtual_memory()
 
+    return {
+        "CPU %": cpu_usage,
+        "RAM Used (GB)": memory_info.used / (1024 ** 3),
+        "RAM Total (GB)": memory_info.total / (1024 ** 3),
+        "RAM %": memory_info.percent
+    }
+
+
+# --- INTEGRATION INTO YOUR SIDEBAR (Example) ---
+# Add this section to your sidebar block:
+
+with st.sidebar:
+    # ... (Your get_data_source() function and logic) ...
+
+    st.markdown("---")
+    st.header("System Health (Live)")
+
+    # 1. Fetch the metrics
+    metrics = get_resource_metrics()
+
+    # 2. Display them using columns and st.metric
+    col_cpu, col_ram = st.columns(2)
+
+    with col_cpu:
+        st.metric("CPU Usage", f"{metrics['CPU %']:.1f}%")
+
+    with col_ram:
+        st.metric("RAM Used", f"{metrics['RAM Used (GB)']:.2f} GB")
+        st.metric("RAM %", f"{metrics['RAM %']:.1f}%")
+
+    # The use of st.rerun() or st.empty() is complex for continuous live updates.
+    # For simplicity, these metrics update every time the main script runs (e.g., when a button is clicked).
 # --- DATA SOURCE HANDLING FUNCTION ---
 
 def get_data_source():
@@ -158,7 +199,6 @@ def get_data_source():
                 file_path = os.path.join(current_dir, item_name)
                 st.session_state['current_file_path'] = file_path
                 st.success(f"CSV selected: {item_name}")
-                # NO st.rerun() here
 
             if path_changed:
                 st.rerun()
@@ -194,8 +234,9 @@ if lf_current is not None:
         c2.metric("Total Columns", f"{col_count:,}")
 
         st.subheader("Data Preview (First 5 Rows)")
-        # Use .fetch() to load only the first few rows safely
+        # FIX: Implement Polars Deprecation Fix: use .limit(5).collect() and width='stretch'
         st.dataframe(lf_current.limit(5).collect().to_pandas(), width='stretch')
+
     except Exception as e:
         st.error(f"Could not calculate initial metrics. Error: {e}")
         st.session_state['current_lazy_frame'] = None
@@ -229,8 +270,8 @@ if lf_current is not None:
         st.markdown("#### Run Data Checks")
         col1, col2 = st.columns(2)
 
+        # --- Column Check Button ---
         with col1:
-            # Button for Column Duplication Check (Runs Header Scan)
             if st.button("Check Column Duplicates", key="col_check_btn", use_container_width=True):
                 if file_path:
                     with st.spinner("Scanning file header..."):
@@ -240,8 +281,8 @@ if lf_current is not None:
                         st.session_state['col_check_done'] = True
                         st.rerun()  # Rerun to display results below
 
+        # --- Row Check Button ---
         with col2:
-            # Button for Row Duplication Check (Runs Full Aggregation)
             if st.button("Calculate Row Duplicates", key="row_calc_btn", use_container_width=True):
                 with st.spinner("Counting rows and duplicates..."):
                     # This is the heavy EAGER calculation
@@ -249,7 +290,7 @@ if lf_current is not None:
                     st.session_state['total_rows'] = total_rows
                     st.session_state['duplicate_rows'] = duplicate_rows
                     st.session_state['row_check_done'] = True
-                    # NO st.rerun() here, as metrics update inside the spinner
+                    # NO st.rerun() here
 
         st.markdown("---")
 
@@ -267,6 +308,7 @@ if lf_current is not None:
 
                 if st.checkbox("Automatically drop duplicate columns (Lazy)", value=True, key="col_drop_check"):
                     lf_temp = drop_duplicate_columns_lazy(lf_temp, duplicate_names)
+                    # Update the projected column count based on the current LF object (lazy operation)
                     st.success(f"Column drop rule added to plan. Projected columns: {len(lf_temp.columns)}")
 
             else:
@@ -290,7 +332,7 @@ if lf_current is not None:
             if removed > 0:
                 if st.checkbox("Automatically remove duplicate rows (Lazy)", value=True, key="row_drop_check"):
                     lf_temp = drop_duplicate_rows_lazy(lf_temp)
-                    st.success(f"Row duplication removal rule added to plan. Projected final rows: {total - removed:,}")
+                    st.success(f"Row duplication removal rule added to plan. Final projected rows: {total - removed:,}")
 
             else:
                 st.success("✅ No Duplicate Rows Found.")
@@ -311,9 +353,42 @@ if lf_current is not None:
     # ----------------------------------------------------
     # 📈 RESULTS & METRICS TAB (Placeholder)
     # ----------------------------------------------------
-    with results_tab:
-        st.header("4. Results and Download")
-        st.write("Final metrics and download buttons will go here.")
+        # ----------------------------------------------------
+        # 📈 RESULTS & METRICS TAB
+        # ----------------------------------------------------
+        with results_tab:
+            st.header("4. Data Analysis & Results")
+
+            # Use the current cleaned LazyFrame
+            lf_final = st.session_state['current_lazy_frame']
+
+            st.markdown("#### Overall Class Distribution Analysis")
+
+            if st.button("Calculate & Visualize Distribution", key="calc_dist_btn"):
+                with st.spinner("Running global aggregation and generating plot..."):
+                    summary_df, fig = get_class_distribution_report(lf_final)
+                    st.session_state['class_summary'] = summary_df
+                    st.session_state['class_fig'] = fig
+                    st.session_state['dist_done'] = True
+
+            if st.session_state.get('dist_done'):
+                if st.session_state['class_fig']:
+                    st.subheader("Visualization")
+                    st.pyplot(st.session_state['class_fig'])
+
+                if not st.session_state['class_summary'].empty:
+                    st.subheader("Label Counts Summary")
+                    st.dataframe(st.session_state['class_summary'], use_container_width=True)
+
+                    # Add a download button for the summary CSV
+                    csv_output = st.session_state['class_summary'].to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="Download Label Distribution CSV",
+                        data=csv_output,
+                        file_name='Overall_Label_Distribution.csv',
+                        mime='text/csv',
+                        key='download_dist_csv'
+                    )
 
 
 else:
