@@ -1,13 +1,20 @@
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, get_resource_metrics
+from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
 from utils import merge_shuffle_partitioned, merge_shuffle_single
 
 st.set_page_config(page_title="Polars Merge & Shuffle", layout="wide")
 initialize_state()
 
-st.title("🔄 Merge & Shuffle CSVs (Polars)")
-st.caption("Merge many CSVs efficiently using Polars; write partitioned shuffled shards or a single shuffled file.")
+# Header for selecting input folder and output folder
+hdr = common_header(
+    "🔄 Merge & Shuffle CSVs (Polars)",
+    num_inputs=1,
+    input_specs=[{"label": "Input folder", "kind": "folder"}],
+    default_output_folder="Processed_Polars"
+)
+sel_input_folder = hdr['input_paths'][0]
+sel_out_folder = hdr['output_folder'] or "Processed_Polars"
 
 with st.sidebar:
     st.header("System Health")
@@ -15,9 +22,11 @@ with st.sidebar:
     st.metric("CPU %", f"{m['CPU %']:.1f}%")
     st.metric("RAM %", f"{m['RAM %']:.1f}%")
 
+st.caption("Merge many CSVs efficiently using Polars; write partitioned shuffled shards or a single shuffled file.")
+
 col1, col2 = st.columns(2)
 with col1:
-    input_folder = st.text_input("Input folder", value="Raw_Data_2018")
+    input_folder = st.text_input("Input folder", value=sel_input_folder or "Raw_Data_2018")
 with col2:
     pattern = st.text_input("File pattern", value="*.csv")
 
@@ -33,8 +42,8 @@ recursive = st.checkbox("Search recursively", value=True)
 
 mode = st.radio("Output mode", ["Partitioned", "Single File"], index=0, horizontal=True)
 
-out_folder = st.text_input("Output folder (for partitioned or temp)", value="Processed_Polars")
-single_file_path = st.text_input("Single file output path (if Single File mode)", value="Processed_Polars/merged_shuffled.csv")
+out_folder = st.text_input("Output folder (for partitioned or temp)", value=sel_out_folder)
+single_file_path = st.text_input("Single file output path (if Single File mode)", value=os.path.join(sel_out_folder, "merged_shuffled.csv"))
 
 run_btn = st.button("Run Merge & Shuffle", use_container_width=True)
 
@@ -80,4 +89,3 @@ if run_btn:
                 with st.expander("Temporary shard files"):
                     for f in meta['created_files']:
                         st.write(f)
-

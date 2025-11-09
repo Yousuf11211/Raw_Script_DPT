@@ -1,13 +1,20 @@
 import streamlit as st
 import polars as pl
-from utils.ui_helpers import initialize_state, get_resource_metrics
+from utils.ui_helpers import initialize_state, get_resource_metrics, common_header, get_lazy_data_reader
 from utils.data_quality import analyze_encoding_candidates, drop_columns_lazy, coerce_columns_to_numeric, sample_string_values, coerce_columns_to_datetime, coerce_ipv4_to_integer
 from utils.io_utils import write_lazyframe_to_csv, default_output_path
 
 st.set_page_config(page_title="Encoding Candidates", layout="wide")
 initialize_state()
 
-st.title("🔡 Encoding Candidates Analysis")
+# Header for dataset selection
+hdr = common_header("🔡 Encoding Candidates Analysis", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
+if hdr['input_paths'][0]:
+    path = hdr['input_paths'][0]
+    st.session_state['current_file_path'] = path
+    lf_loaded = get_lazy_data_reader(path)
+    if lf_loaded is not None:
+        st.session_state['current_lazy_frame'] = lf_loaded
 
 with st.sidebar:
     st.header("System Health")

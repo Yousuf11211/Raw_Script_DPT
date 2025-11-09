@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 from sklearn.ensemble import RandomForestClassifier
-from utils.ui_helpers import initialize_state, get_resource_metrics
+from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
 from utils.feature_importance import prepare_feature_matrix
 from utils import (
     parse_param_list,
@@ -15,7 +15,14 @@ from utils import (
 st.set_page_config(page_title="Hyperparameter Tuning", layout="wide")
 initialize_state()
 
-st.title("⚙️ Hyperparameter Tuning (RandomForest & XGBoost)")
+# Header for selecting the training CSV
+header_train = common_header(
+    "⚙️ Hyperparameter Tuning (RandomForest & XGBoost)",
+    num_inputs=1,
+    input_specs=[{"label": "Training CSV", "kind": "file", "allowed_exts": [".csv"]}],
+    default_output_folder=""
+)
+train_csv_selected = header_train['input_paths'][0]
 
 with st.sidebar:
     st.header("System Health")
@@ -23,143 +30,121 @@ with st.sidebar:
     st.metric("CPU %", f"{m['CPU %']:.1f}%")
     st.metric("RAM %", f"{m['RAM %']:.1f}%")
 
+# Current dataset from session OR load from selected path
 lf = st.session_state.get('current_lazy_frame')
 file_path = st.session_state.get('current_file_path')
+
+# If user picked a training CSV explicitly, prefer that by reading via Polars scan
+if train_csv_selected:
+    try:
+        import polars as pl
+        lf = pl.scan_csv(train_csv_selected)
+        file_path = train_csv_selected
+        st.session_state['current_lazy_frame'] = lf
+        st.session_state['current_file_path'] = file_path
+    except Exception as e:
+        st.error(f"Failed to lazy-load training CSV: {e}")
+
 if lf is None:
-    st.info("Load a dataset with a 'label' column on Home first.")
+    st.info("Load a dataset on the Home page or select a Training CSV above.")
     st.stop()
 
-st.subheader("Data Sampling & CV Settings")
-colA, colB, colC = st.columns(3)
-with colA:
-    sample_frac = st.slider("Row sampling fraction", 0.05, 1.0, 1.0, 0.05)
-with colB:
-    cv_folds = st.selectbox("CV folds", [3,5,7], index=0)
-with colC:
-    scoring = st.selectbox("Scoring metric", ["f1_macro","accuracy","precision_macro","recall_macro"], index=0)
+# Controls
+st.subheader("Run Feature Importance Analysis")
+method_choice = st.multiselect(
+    "Choose methods",
+    ["RandomForest", "XGBoost", "Compare Both"],
+    default=["RandomForest", "XGBoost"]
+)
+per_label = st.checkbox("Include per-label (One-vs-Rest) XGBoost analysis", value=False)
+rf_estimators = st.number_input("RandomForest n_estimators", min_value=50, max_value=1000, value=100, step=10)
+xgb_estimators = st.number_input("XGBoost n_estimators", min_value=50, max_value=1000, value=100, step=10)
+near_zero_threshold = st.number_input("Near-zero importance threshold (%)", min_value=0.0, max_value=5.0, value=0.1, step=0.05)
 
-st.markdown("---")
-st.subheader("RandomForest Parameter Grid")
-rf_cols = st.columns(4)
-with rf_cols[0]:
-    rf_n_estimators_raw = st.text_area("n_estimators", "100,200,300", key="rf_n_estimators")
-with rf_cols[1]:
-    rf_max_depth_raw = st.text_area("max_depth", "10,20,30", key="rf_max_depth")
-with rf_cols[2]:
-    rf_min_samples_split_raw = st.text_area("min_samples_split", "2,5", key="rf_min_samples_split")
-with rf_cols[3]:
-    rf_max_features_raw = st.text_area("max_features", "sqrt,log2", key="rf_max_features")
+# Sampling and optional drop
+sample_frac = st.slider("Row sampling fraction (for speed)", 0.05, 1.0, 1.0, 0.05)
+apply_drop = st.checkbox("Allow dropping near-zero features from current dataset", value=False)
 
-st.markdown("---")
-st.subheader("XGBoost Parameter Grid")
-xgb_cols = st.columns(4)
-with xgb_cols[0]:
-    xgb_n_estimators_raw = st.text_area("n_estimators", "100,200,300", key="xgb_n_estimators")
-with xgb_cols[1]:
-    xgb_max_depth_raw = st.text_area("max_depth", "5,10,20", key="xgb_max_depth")
-with xgb_cols[2]:
-    xgb_learning_rate_raw = st.text_area("learning_rate", "0.01,0.1", key="xgb_learning_rate")
-with xgb_cols[3]:
-    xgb_subsample_raw = st.text_area("subsample", "0.8,1.0", key="xgb_subsample")
-
-run_cols = st.columns(3)
-with run_cols[0]:
-    run_rf = st.button("Run RandomForest Tuning", use_container_width=True)
-with run_cols[1]:
-    run_xgb = st.button("Run XGBoost Tuning", use_container_width=True)
-with run_cols[2]:
-    run_both = st.button("Run Both", use_container_width=True)
-
-results_rf = st.session_state.get('tuning_rf')
-results_xgb = st.session_state.get('tuning_xgb')
-
-if run_rf or run_both or run_xgb:
-    with st.spinner("Preparing data matrix..."):
-        X, y, diag = prepare_feature_matrix(lf, sample_frac=float(sample_frac))
-    st.caption(f"Rows: {diag['rows']} | Sampled: {diag['sampled_rows']} | Features: {diag['cols']-1} | Object encoded: {diag['object_cols']}")
-
-if run_rf or run_both:
-    rf_grid = {
-        'n_estimators': parse_param_list(rf_n_estimators_raw, int),
-        'max_depth': parse_param_list(rf_max_depth_raw, int),
-        'min_samples_split': parse_param_list(rf_min_samples_split_raw, int),
-        'max_features': parse_param_list(rf_max_features_raw, str),
-    }
-    if any(len(v)==0 for v in rf_grid.values()):
-        st.error("RandomForest grid has an empty dimension.")
-    else:
-        prog = st.progress(0)
-        status = st.empty()
-        def rf_cb(i,total,row):
-            prog.progress(i/total)
-            status.text(f"RF Progress: {i}/{total} | last score {row['mean_test_score']:.4f}")
-        try:
-            rf_df, rf_best_params, rf_best_score = tune_random_forest(
-                X, y, rf_grid, cv=cv_folds, scoring=scoring, progress_callback=rf_cb
-            )
-            st.session_state['tuning_rf'] = {
-                'results': rf_df,
-                'best_params': rf_best_params,
-                'best_score': rf_best_score,
-            }
-            st.success(f"RF tuning done. Best {scoring}: {rf_best_score:.4f}")
-            st.dataframe(rf_df.sort_values('mean_test_score', ascending=False).head(50), use_container_width=True)
-            st.download_button("Download RF results CSV", rf_df.to_csv(index=False), file_name="rf_tuning_results.csv")
-        except Exception as e:
-            st.error(f"RF tuning failed: {e}")
-
-if run_xgb or run_both:
-    if not run_rf and 'X' not in locals():
+if st.button("Run Importance", use_container_width=True):
+    try:
         with st.spinner("Preparing data matrix..."):
             X, y, diag = prepare_feature_matrix(lf, sample_frac=float(sample_frac))
         st.caption(f"Rows: {diag['rows']} | Sampled: {diag['sampled_rows']} | Features: {diag['cols']-1} | Object encoded: {diag['object_cols']}")
-    xgb_grid = {
-        'n_estimators': parse_param_list(xgb_n_estimators_raw, int),
-        'max_depth': parse_param_list(xgb_max_depth_raw, int),
-        'learning_rate': parse_param_list(xgb_learning_rate_raw, float),
-        'subsample': parse_param_list(xgb_subsample_raw, float),
-    }
-    if any(len(v)==0 for v in xgb_grid.values()):
-        st.error("XGBoost grid has an empty dimension.")
-    else:
-        if not st.session_state.get('HAS_XGB_LIB', False):
-            try:
-                import xgboost  # noqa: F401
-                st.session_state['HAS_XGB_LIB'] = True
-            except Exception:
-                st.warning("XGBoost library not installed. Run: pip install xgboost")
-        if st.session_state.get('HAS_XGB_LIB'):
-            prog_x = st.progress(0)
-            status_x = st.empty()
-            def xgb_cb(i,total,row):
-                prog_x.progress(i/total)
-                status_x.text(f"XGB Progress: {i}/{total} | last score {row['mean_test_score']:.4f}")
-            try:
-                xgb_df, xgb_best_params, xgb_best_score, label_map = tune_xgboost(
-                    X, y, xgb_grid, cv=cv_folds, scoring=scoring, progress_callback=xgb_cb
-                )
-                st.session_state['tuning_xgb'] = {
-                    'results': xgb_df,
-                    'best_params': xgb_best_params,
-                    'best_score': xgb_best_score,
-                    'label_map': label_map,
-                }
-                st.success(f"XGB tuning done. Best {scoring}: {xgb_best_score:.4f}")
-                st.dataframe(xgb_df.sort_values('mean_test_score', ascending=False).head(50), use_container_width=True)
-                st.download_button("Download XGB results CSV", xgb_df.to_csv(index=False), file_name="xgb_tuning_results.csv")
-            except Exception as e:
-                st.error(f"XGB tuning failed: {e}")
+        rf_df = xgb_df = None
+        if "RandomForest" in method_choice or "Compare Both" in method_choice:
+            with st.spinner("Training RandomForest..."):
+                rf_df = utils.feature_importance.compute_random_forest_importance(X, y, n_estimators=int(rf_estimators))
+                st.success("RandomForest importance computed.")
+        if "XGBoost" in method_choice or "Compare Both" in method_choice:
+            with st.spinner("Training XGBoost..."):
+                xgb_df = utils.feature_importance.compute_xgboost_importance(X, y, n_estimators=int(xgb_estimators))
+                if xgb_df is None:
+                    st.warning("XGBoost not installed. Run 'pip install xgboost' to enable XGBoost analysis.")
+                else:
+                    st.success("XGBoost importance computed.")
+        if "Compare Both" in method_choice:
+            merged = utils.feature_importance.merge_importances(rf_df, xgb_df)
+            st.subheader("Merged Importance Results")
+            st.dataframe(merged.head(100), use_container_width=True)
+            st.download_button("Download merged CSV", merged.to_csv(index=False), file_name="merged_feature_importance.csv")
+        else:
+            if rf_df is not None:
+                st.subheader("RandomForest Importance")
+                st.dataframe(rf_df.head(50), use_container_width=True)
+                st.download_button("Download RF importance CSV", rf_df.to_csv(index=False), file_name="rf_feature_importance.csv")
+            if xgb_df is not None:
+                st.subheader("XGBoost Importance")
+                st.dataframe(xgb_df.head(50), use_container_width=True)
+                st.download_button("Download XGB importance CSV", xgb_df.to_csv(index=False), file_name="xgb_feature_importance.csv")
+        # Near-zero features (report and optionally drop)
+        to_drop = []
+        if rf_df is not None:
+            rf_zero = utils.feature_importance.get_near_zero_features(rf_df, near_zero_threshold, 'rf_importance_pct')
+            if rf_zero:
+                st.warning(f"RandomForest near-zero features (< {near_zero_threshold}%): {len(rf_zero)}")
+                with st.expander("RF near-zero list"):
+                    st.write(rf_zero)
+                to_drop.extend(rf_zero)
+        if xgb_df is not None:
+            xgb_zero = utils.feature_importance.get_near_zero_features(xgb_df, near_zero_threshold, 'xgb_importance_pct')
+            if xgb_zero:
+                st.warning(f"XGBoost near-zero features (< {near_zero_threshold}%): {len(xgb_zero)}")
+                with st.expander("XGB near-zero list"):
+                    st.write(xgb_zero)
+                to_drop.extend([f for f in xgb_zero if f not in to_drop])
+        if apply_drop and to_drop:
+            if st.button(f"Drop {len(to_drop)} near-zero features from current dataset"):
+                new_lf = lf.drop(to_drop)
+                st.session_state['current_lazy_frame'] = new_lf
+                st.session_state['applied_filters'].append(f"Drop near-zero importance ({len(to_drop)} features)")
+                st.success("Scheduled lazy drop of near-zero features.")
+        # Per-label analysis
+        if per_label and xgb_df is not None:
+            with st.spinner("Running per-label XGBoost One-vs-Rest analysis..."):
+                per_label_maps = utils.feature_importance.compute_xgb_per_label_importance(X, y)
+            if per_label_maps:
+                st.subheader("Per-Label XGBoost Importance (Top 15 each)")
+                for label_name, df_imp in per_label_maps.items():
+                    st.markdown(f"**{label_name}**")
+                    st.dataframe(df_imp.head(15), use_container_width=True)
+            else:
+                st.info("Per-label analysis skipped (XGBoost unavailable).")
+    except Exception as e:
+        st.error(f"Failed to compute importance: {e}")
 
-# Refit & Evaluate section
+# Refit & Evaluate section: select Test CSV using a small header row
 st.markdown("---")
 st.subheader("Refit Best Model & Evaluate")
-colEval = st.columns(3)
-with colEval[0]:
-    test_file_path = st.text_input("Test CSV path", value="")
-with colEval[1]:
-    model_choice = st.selectbox("Model to refit", ["RandomForest","XGBoost"], index=0)
-with colEval[2]:
-    refit_button = st.button("Refit & Evaluate", use_container_width=True)
+header_eval = common_header(
+    "Test Data Selection",
+    num_inputs=1,
+    input_specs=[{"label": "Test CSV", "kind": "file", "allowed_exts": [".csv"]}],
+    default_output_folder=""
+)
+
+test_file_path = header_eval['input_paths'][0]
+model_choice = st.selectbox("Model to refit", ["RandomForest","XGBoost"], index=0)
+refit_button = st.button("Refit & Evaluate", use_container_width=True)
 
 if refit_button:
     if not test_file_path or not os.path.isfile(test_file_path):
@@ -171,6 +156,10 @@ if refit_button:
             if 'label' not in test_df.columns:
                 st.error("Test data must have a 'label' column.")
             else:
+                # Reuse X and y prepared earlier if available
+                if 'X' not in locals() or 'y' not in locals():
+                    with st.spinner("Preparing training matrix from selected Training CSV..."):
+                        X, y, diag = prepare_feature_matrix(st.session_state['current_lazy_frame'], sample_frac=1.0)
                 X_test = test_df.drop(columns=['label'])
                 y_test = test_df['label']
                 if model_choice == 'RandomForest':

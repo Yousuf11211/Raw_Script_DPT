@@ -1,13 +1,22 @@
 import streamlit as st
 import os
 import joblib
-from utils.ui_helpers import initialize_state, get_resource_metrics
+from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
 from utils import train_isolation_forest_on_csv
 
 st.set_page_config(page_title="Isolation Forest (Benign Only)", layout="wide")
 initialize_state()
 
-st.title("🧪 Isolation Forest — Benign Data Model")
+# Header for selecting benign CSV and output model folder
+hdr = common_header(
+    "🧪 Isolation Forest — Benign Data Model",
+    num_inputs=1,
+    input_specs=[{"label": "Benign CSV", "kind": "file", "allowed_exts": [".csv"]}],
+    default_output_folder="Training_isolation_model_cleaned"
+)
+sel_benign_csv = hdr['input_paths'][0]
+sel_out_folder = hdr['output_folder'] or "Training_isolation_model_cleaned"
+
 st.info("This page trains an Isolation Forest on benign-only data. Do not use attack data here.")
 
 with st.sidebar:
@@ -19,9 +28,9 @@ with st.sidebar:
 st.subheader("Training Settings")
 col1, col2, col3 = st.columns(3)
 with col1:
-    benign_csv = st.text_input("Benign CSV path", value="Training_isolation_model_cleaned/Benign_part_2.csv")
+    benign_csv = st.text_input("Benign CSV path", value=sel_benign_csv or "Training_isolation_model_cleaned/Benign_part_2.csv")
 with col2:
-    out_model = st.text_input("Output model path", value="Training_isolation_model_cleaned/isolation.joblib")
+    out_model = st.text_input("Output model path", value=os.path.join(sel_out_folder, "isolation.joblib"))
 with col3:
     chunk_size = st.number_input("Chunk size", min_value=10000, max_value=5000000, value=2000000, step=10000)
 
@@ -65,4 +74,3 @@ if st.button("Train Isolation Forest", use_container_width=True):
         joblib.dump(model, out_model)
         st.success(f"Model saved to {out_model}")
         st.json(stats)
-

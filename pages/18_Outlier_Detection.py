@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 import polars as pl
-from utils.ui_helpers import initialize_state, get_resource_metrics
+from utils.ui_helpers import initialize_state, get_resource_metrics, common_header, get_lazy_data_reader
 from utils import (
     analyze_iqr_outliers,
     remove_outliers_lazy,
@@ -12,7 +12,15 @@ from utils import (
 st.set_page_config(page_title="Outlier Detection (IQR)", layout="wide")
 initialize_state()
 
-st.title("📈 Outlier Detection & Handling (IQR)")
+# Header for dataset selection
+hdr = common_header("📈 Outlier Detection & Handling (IQR)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="outlier_plots")
+if hdr['input_paths'][0]:
+    path = hdr['input_paths'][0]
+    st.session_state['current_file_path'] = path
+    lf_loaded = get_lazy_data_reader(path)
+    if lf_loaded is not None:
+        st.session_state['current_lazy_frame'] = lf_loaded
+
 st.caption("Analyze numeric columns for IQR-based outliers, inspect plots, and optionally remove or cap them.")
 
 with st.sidebar:
@@ -77,4 +85,3 @@ if bounds:
         st.session_state['current_lazy_frame'] = new_lf
         st.session_state['applied_filters'].append(f"Outlier handling mode={mode} cols={len(selected_cols)}")
         st.success("Outlier handling applied lazily. Save from a data export page to persist.")
-

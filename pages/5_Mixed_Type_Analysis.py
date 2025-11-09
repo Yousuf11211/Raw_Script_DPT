@@ -1,13 +1,20 @@
 import streamlit as st
 import polars as pl
-from utils.ui_helpers import initialize_state, get_resource_metrics
+from utils.ui_helpers import initialize_state, get_resource_metrics, common_header, get_lazy_data_reader
 from utils.data_quality import analyze_mixed_types, coerce_columns_to_numeric, drop_columns_lazy
 from utils.io_utils import write_lazyframe_to_csv, default_output_path
 
 st.set_page_config(page_title="Mixed-Type Analysis", layout="wide")
 initialize_state()
 
-st.title("🧪 Mixed-Type Column Analysis")
+# Header for dataset selection
+hdr = common_header("🧪 Mixed-Type Column Analysis", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
+if hdr['input_paths'][0]:
+    path = hdr['input_paths'][0]
+    st.session_state['current_file_path'] = path
+    lf_loaded = get_lazy_data_reader(path)
+    if lf_loaded is not None:
+        st.session_state['current_lazy_frame'] = lf_loaded
 
 with st.sidebar:
     st.header("System Health")
@@ -91,4 +98,3 @@ if mt_df is not None and not mt_df.empty:
             ok = write_lazyframe_to_csv(st.session_state['current_lazy_frame'], out_path)
             if ok:
                 st.success(f"Saved to {out_path}")
-

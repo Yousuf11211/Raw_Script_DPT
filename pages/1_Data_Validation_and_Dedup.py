@@ -1,6 +1,6 @@
 import streamlit as st
 import polars as pl
-from utils.ui_helpers import initialize_state, data_source_selector, get_resource_metrics
+from utils.ui_helpers import initialize_state, data_source_selector, get_resource_metrics, common_header, get_lazy_data_reader
 from utils.data_cleaning import (
     get_validation_report_and_filter_plan,
     get_duplicate_columns,
@@ -13,7 +13,14 @@ from utils.io_utils import write_lazyframe_to_csv, default_output_path
 st.set_page_config(page_title="Data Validation & Dedup", layout="wide")
 initialize_state()
 
-st.title("🧹 Data Validation & Deduplication")
+# Common header to select a CSV if desired
+hdr = common_header("🧹 Data Validation & Deduplication", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
+if hdr['input_paths'][0]:
+    path = hdr['input_paths'][0]
+    st.session_state['current_file_path'] = path
+    lf_loaded = get_lazy_data_reader(path)
+    if lf_loaded is not None:
+        st.session_state['current_lazy_frame'] = lf_loaded
 
 # Ensure a dataset is selected; allow selection here too for convenience
 with st.sidebar:
@@ -115,4 +122,3 @@ with st.expander("Save dataset to disk (after row dedup)"):
         ok = write_lazyframe_to_csv(lf, out_path)
         if ok:
             st.success(f"Saved to {out_path}")
-

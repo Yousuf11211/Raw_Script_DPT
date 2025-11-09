@@ -53,8 +53,15 @@ def generate_testing_batches(df_benign: pd.DataFrame,
                               num_batches: int = 20,
                               benign_ratio: float = 0.70,
                               min_rows: int = 50,
-                              max_rows: int = 100) -> Dict[str, int]:
-    os.makedirs(output_folder, exist_ok=True)
+                              max_rows: int = 100,
+                              dry_run: bool = False) -> Dict[str, int]:
+    """Generate mixed benign/attack batches.
+
+    If dry_run=True, skip writing CSV files and just simulate counts.
+    Returns metadata with 'batches_created'.
+    """
+    if not dry_run:
+        os.makedirs(output_folder, exist_ok=True)
     benign_indices = set(df_benign.index)
     attack_indices = set(df_attack.index)
     generated = 0
@@ -69,16 +76,19 @@ def generate_testing_batches(df_benign: pd.DataFrame,
         sampled_attack = random.sample(list(attack_indices), attack_count)
         benign_indices.difference_update(sampled_benign)
         attack_indices.difference_update(sampled_attack)
-        df_b_sample = df_benign.loc[sampled_benign].copy()
-        df_a_sample = df_attack.loc[sampled_attack].copy()
-        final_df = pd.concat([df_b_sample, df_a_sample], ignore_index=True).sample(frac=1).reset_index(drop=True)
-        timestamps = [generate_unique_timestamp(START_TIME, global_counter + j) for j in range(len(final_df))]
-        ips = [generate_unique_ip(global_counter + j) for j in range(len(final_df))]
-        final_df['timestamp'] = [dt.strftime('%Y-%m-%d %H:%M:%S.%f') for dt in timestamps]
-        final_df['src_ip'] = ips
-        out_path = os.path.join(output_folder, f"final_testing_{i}.csv")
-        final_df.to_csv(out_path, index=False)
-        global_counter += len(final_df)
+        if not dry_run:
+            df_b_sample = df_benign.loc[sampled_benign].copy()
+            df_a_sample = df_attack.loc[sampled_attack].copy()
+            final_df = pd.concat([df_b_sample, df_a_sample], ignore_index=True).sample(frac=1).reset_index(drop=True)
+            timestamps = [generate_unique_timestamp(START_TIME, global_counter + j) for j in range(len(final_df))]
+            ips = [generate_unique_ip(global_counter + j) for j in range(len(final_df))]
+            final_df['timestamp'] = [dt.strftime('%Y-%m-%d %H:%M:%S.%f') for dt in timestamps]
+            final_df['src_ip'] = ips
+            out_path = os.path.join(output_folder, f"final_testing_{i}.csv")
+            final_df.to_csv(out_path, index=False)
+            global_counter += len(final_df)
+        else:
+            # simulate counter advance
+            global_counter += rows_per
         generated += 1
     return {"batches_created": generated}
-

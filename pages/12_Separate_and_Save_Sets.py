@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, get_resource_metrics
+from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
 from utils import (
     sep_analyze_and_classify,
     sep_process_combined,
@@ -12,7 +12,15 @@ from utils import (
 st.set_page_config(page_title="Separate and Save Benign/Attack Sets", layout="wide")
 initialize_state()
 
-st.title("🗂️ Separate and Save Benign/Attack Sets")
+# Header for selecting input folder and output folder
+hdr = common_header(
+    "🗂️ Separate and Save Benign/Attack Sets",
+    num_inputs=1,
+    input_specs=[{"label": "Input folder", "kind": "folder"}],
+    default_output_folder=SEP_DEFAULT_OUTPUT_FOLDER
+)
+sel_input_folder = hdr['input_paths'][0]
+sel_output_folder = hdr['output_folder'] or SEP_DEFAULT_OUTPUT_FOLDER
 
 with st.sidebar:
     st.header("System Health")
@@ -24,9 +32,9 @@ st.markdown("Split large folders into Benign and Attack output files with your c
 
 col1, col2 = st.columns(2)
 with col1:
-    input_folder = st.text_input("Input folder", value=SEP_DEFAULT_INPUT_FOLDER)
+    input_folder = st.text_input("Input folder", value=sel_input_folder or SEP_DEFAULT_INPUT_FOLDER)
 with col2:
-    output_folder = st.text_input("Output folder", value=SEP_DEFAULT_OUTPUT_FOLDER)
+    output_folder = st.text_input("Output folder", value=sel_output_folder)
 
 mode = st.radio("Processing mode", ["benign", "attacks", "both"], index=2, horizontal=True)
 rows_per_file = st.number_input("Rows per output file", min_value=10_000, max_value=5_000_000, value=500_000, step=10_000)
@@ -118,4 +126,3 @@ if state:
                         st.write(p)
         else:
             st.info("No attack labels found in analysis.")
-

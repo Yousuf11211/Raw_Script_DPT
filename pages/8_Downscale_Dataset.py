@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, get_resource_metrics
+from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
 from utils.downscale import (
     downscale_from_folder,
     downscale_from_file,
@@ -12,7 +12,15 @@ from utils.downscale import (
 st.set_page_config(page_title="Downscale Dataset", layout="wide")
 initialize_state()
 
-st.title("📉 Downscale Dataset (Create Small Benign/Attack Sets)")
+# Header for selecting input folder (optional) and output folder
+hdr = common_header(
+    "📉 Downscale Dataset (Create Small Benign/Attack Sets)",
+    num_inputs=1,
+    input_specs=[{"label": "Input folder (optional)", "kind": "folder"}],
+    default_output_folder=DEFAULT_OUTPUT_FOLDER
+)
+sel_input_folder = hdr['input_paths'][0]
+sel_output_folder = hdr['output_folder'] or DEFAULT_OUTPUT_FOLDER
 
 with st.sidebar:
     st.header("System Health")
@@ -26,11 +34,11 @@ st.subheader("Settings")
 col1, col2 = st.columns(2)
 with col1:
     if mode == "Scan Folder":
-        input_folder = st.text_input("Input folder (recursive)", value=DEFAULT_INPUT_FOLDER)
+        input_folder = st.text_input("Input folder (recursive)", value=sel_input_folder or DEFAULT_INPUT_FOLDER)
     elif mode == "Specific File Path":
         input_file = st.text_input("Input CSV file", value="")
 with col2:
-    output_folder = st.text_input("Output folder (two files will be written)", value=DEFAULT_OUTPUT_FOLDER)
+    output_folder = st.text_input("Output folder (two files will be written)", value=sel_output_folder)
 
 col3, col4 = st.columns(2)
 with col3:

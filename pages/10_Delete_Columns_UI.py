@@ -1,13 +1,20 @@
 import streamlit as st
 import polars as pl
-from utils.ui_helpers import initialize_state, get_resource_metrics
+from utils.ui_helpers import initialize_state, get_resource_metrics, common_header, get_lazy_data_reader
 from utils.data_quality import map_requested_columns, drop_columns_lazy
 from utils.io_utils import write_lazyframe_to_csv, default_output_path
 
 st.set_page_config(page_title="Delete Columns", layout="wide")
 initialize_state()
 
-st.title("🗑️ Delete Columns (Dynamic)")
+# Header for dataset selection
+hdr = common_header("🗑️ Delete Columns (Dynamic)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
+if hdr['input_paths'][0]:
+    path = hdr['input_paths'][0]
+    st.session_state['current_file_path'] = path
+    lf_loaded = get_lazy_data_reader(path)
+    if lf_loaded is not None:
+        st.session_state['current_lazy_frame'] = lf_loaded
 
 with st.sidebar:
     st.header("System Health")

@@ -1,12 +1,20 @@
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, get_resource_metrics
+from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
 from utils.compare_datasets import get_reference_columns, compare_rows_between_folders
 
 st.set_page_config(page_title="Compare Raw vs Processed", layout="wide")
 initialize_state()
 
-st.title("🔍 Compare Raw vs Processed CSV Folders")
+header = common_header(
+    "🔍 Compare Raw vs Processed CSV Folders",
+    num_inputs=2,
+    input_specs=[
+        {"label": "Raw folder", "kind": "folder"},
+        {"label": "Processed folder", "kind": "folder"},
+    ],
+    default_output_folder=""
+)
 
 with st.sidebar:
     st.header("System Health")
@@ -16,17 +24,13 @@ with st.sidebar:
 
 st.markdown("Use this tool to verify column consistency and row coverage between a raw data folder and a processed output folder.")
 
-colA, colB = st.columns(2)
-with colA:
-    raw_folder = st.text_input("Raw folder", value="Raw_Data_2017")
-with colB:
-    processed_folder = st.text_input("Processed folder", value="Processed_Data_2017")
+raw_folder, processed_folder = header['input_paths']
 
 st.markdown("### Column Consistency")
 if st.button("Check Columns", use_container_width=True):
-    if not os.path.isdir(raw_folder):
+    if not raw_folder or not os.path.isdir(raw_folder):
         st.error(f"Raw folder does not exist: {raw_folder}")
-    elif not os.path.isdir(processed_folder):
+    elif not processed_folder or not os.path.isdir(processed_folder):
         st.error(f"Processed folder does not exist: {processed_folder}")
     else:
         with st.spinner("Reading reference columns and scanning for mismatches..."):
@@ -59,9 +63,9 @@ hash_method = st.selectbox("Hash method", ["md5", "sha1", "sha256"], index=0)
 sample_limit = st.number_input("Sample rows to show", min_value=1, max_value=50, value=10)
 
 if st.button("Compare Rows", use_container_width=True):
-    if not os.path.isdir(raw_folder):
+    if not raw_folder or not os.path.isdir(raw_folder):
         st.error(f"Raw folder does not exist: {raw_folder}")
-    elif not os.path.isdir(processed_folder):
+    elif not processed_folder or not os.path.isdir(processed_folder):
         st.error(f"Processed folder does not exist: {processed_folder}")
     else:
         with st.spinner("Computing row signatures across folders..."):
@@ -89,4 +93,3 @@ if st.button("Compare Rows", use_container_width=True):
                         st.write("No samples to show.")
 
             st.caption(f"Mode: {result['mode']} | Hash: {result.get('hash_method','n/a')} | Sample limit: {int(sample_limit)}")
-

@@ -1,12 +1,22 @@
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, get_resource_metrics
+from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
 from utils import test_isolation_forest_on_csv
 
 st.set_page_config(page_title="Test Isolation Forest (Benign)", layout="wide")
 initialize_state()
 
-st.title("🧪 Test Isolation Forest — Benign vs Anomaly")
+header = common_header(
+    "🧪 Test Isolation Forest — Benign vs Anomaly",
+    num_inputs=2,
+    input_specs=[
+        {"label": "Model path (.joblib)", "kind": "file", "allowed_exts": [".joblib"]},
+        {"label": "Test CSV", "kind": "file", "allowed_exts": [".csv"]},
+    ],
+    default_output_folder=""
+)
+model_path, test_csv_path = header['input_paths']
+
 st.info("Use this to evaluate an Isolation Forest model on a labeled dataset. True labels are mapped to 1 (Benign) and -1 (Attack).")
 
 with st.sidebar:
@@ -15,18 +25,11 @@ with st.sidebar:
     st.metric("CPU %", f"{m['CPU %']:.1f}%")
     st.metric("RAM %", f"{m['RAM %']:.1f}%")
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    model_path = st.text_input("Model path (.joblib)", value="Training_isolation_model_cleaned/isolation.joblib")
-with col2:
-    test_csv_path = st.text_input("Test CSV path", value="Testing_isolation_model_cleaned/Benign_part_2.csv")
-with col3:
-    label_col = st.text_input("Label column name", value="label")
-
+label_col = st.text_input("Label column name", value="label")
 benign_name = st.text_input("Benign label value", value="Benign")
 
 if st.button("Run Isolation Test", use_container_width=True):
-    if not os.path.isfile(model_path) or not os.path.isfile(test_csv_path):
+    if not model_path or not test_csv_path or not os.path.isfile(model_path) or not os.path.isfile(test_csv_path):
         st.error("Model or Test CSV not found.")
     else:
         with st.spinner("Running Isolation Forest on numeric features only..."):
@@ -39,4 +42,3 @@ if st.button("Run Isolation Test", use_container_width=True):
         if 'confusion_matrix' in res:
             st.subheader("Confusion Matrix")
             st.dataframe(res['confusion_matrix'], use_container_width=True)
-
