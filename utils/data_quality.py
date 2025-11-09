@@ -401,3 +401,25 @@ def sample_string_values(lf: pl.LazyFrame, column: str, max_samples: int = 10) -
     except Exception as e:
         st.error(f"Failed to sample string values for {column}: {e}")
         return []
+
+
+def map_requested_columns(existing_columns: List[str], requested: List[str], normalize: bool = True) -> Tuple[List[str], List[str]]:
+    """
+    Map requested column names to actual existing column names using case-insensitive matching.
+    Returns (found_actual_names, not_found_requested_names).
+    When normalize=True, trims whitespace and lowercases requested names before matching.
+    """
+    if not requested:
+        return [], []
+    existing_map = {c.lower(): c for c in existing_columns}
+    found: List[str] = []
+    not_found: List[str] = []
+    for name in requested:
+        key = name.strip().lower() if normalize else name
+        actual = existing_map.get(key)
+        if actual is not None:
+            if actual not in found:
+                found.append(actual)
+        else:
+            not_found.append(name)
+    return found, not_found
