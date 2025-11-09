@@ -39,6 +39,13 @@ from .separate_sets import (
     DEFAULT_INPUT_FOLDER as SEP_DEFAULT_INPUT_FOLDER,
     DEFAULT_OUTPUT_FOLDER as SEP_DEFAULT_OUTPUT_FOLDER,
 )
+from .hyperparameter_tuning import (
+    parse_param_list,
+    tune_xgboost,
+    tune_random_forest,
+    refit_and_evaluate,
+    build_heatmap_table,
+)
 
 __all__ = [
     'initialize_state', 'get_resource_metrics', 'data_source_selector',
@@ -51,5 +58,6 @@ __all__ = [
     'downscale_from_folder', 'downscale_from_file', 'downscale_from_lazyframe',
     'get_reference_columns', 'compare_rows_between_folders',
     'prepare_feature_matrix','compute_random_forest_importance','compute_xgboost_importance','compute_xgb_per_label_importance','merge_importances','get_near_zero_features',
-    'sep_analyze_and_classify','sep_process_combined','sep_process_proportional','SEP_DEFAULT_INPUT_FOLDER','SEP_DEFAULT_OUTPUT_FOLDER'
+    'sep_analyze_and_classify','sep_process_combined','sep_process_proportional','SEP_DEFAULT_INPUT_FOLDER','SEP_DEFAULT_OUTPUT_FOLDER',
+    'parse_param_list','tune_xgboost','tune_random_forest','refit_and_evaluate','build_heatmap_table'
 ]
