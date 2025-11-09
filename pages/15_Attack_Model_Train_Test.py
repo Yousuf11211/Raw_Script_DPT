@@ -78,18 +78,45 @@ with colT2:
 with colT3:
     label_map_path = st.text_input("Label mapping file (optional)", value="Attack_Model/training_label_mapping.txt")
 
+save_cols = st.columns(4)
+with save_cols[0]:
+    save_report = st.checkbox("Save report", value=False)
+with save_cols[1]:
+    save_cm = st.checkbox("Save confusion matrix", value=False)
+with save_cols[2]:
+    save_preds_csv = st.checkbox("Save predictions CSV", value=False)
+with save_cols[3]:
+    save_counts = st.checkbox("Save counts summary", value=False)
+
+output_folder = st.text_input("Output folder for test artifacts", value="Test_Reports")
+
 if st.button("Run Test", use_container_width=True):
     if not os.path.isfile(model_path) or not os.path.isfile(test_csv):
         st.error("Model or Test CSV not found.")
     else:
+        os.makedirs(output_folder, exist_ok=True)
         with st.spinner("Running predictions..."):
             res = test_sklearn_model_on_csv(model_path, test_csv, label_map_path if os.path.isfile(label_map_path) else None)
         st.subheader("Prediction Counts")
         st.json(res.get('prediction_counts', {}))
+        base_name = os.path.splitext(os.path.basename(test_csv))[0]
         if 'report' in res:
             st.subheader("Classification Report")
             st.text(res['report'])
+            if save_report:
+                with open(os.path.join(output_folder, f"{base_name}_report.txt"), 'w', encoding='utf-8') as f:
+                    f.write(res['report'])
         if 'confusion_matrix' in res:
             st.subheader("Confusion Matrix")
             st.dataframe(res['confusion_matrix'], use_container_width=True)
-
+            if save_cm:
+                res['confusion_matrix'].to_csv(os.path.join(output_folder, f"{base_name}_confusion_matrix.csv"), index=True)
+        if save_counts and 'prediction_counts' in res:
+            with open(os.path.join(output_folder, f"{base_name}_predicted_counts.txt"), 'w', encoding='utf-8') as f:
+                for k,v in sorted(res['prediction_counts'].items()):
+                    f.write(f"{k}: {v}\n")
+        if save_preds_csv and 'predicted_labels' in res:
+            df_full = pd.read_csv(test_csv, low_memory=False)
+            df_full['predicted_label'] = res['predicted_labels']
+            df_full.to_csv(os.path.join(output_folder, f"{base_name}_predictions.csv"), index=False)
+            st.info(f"Saved full predictions CSV -> {os.path.join(output_folder, f'{base_name}_predictions.csv')}")

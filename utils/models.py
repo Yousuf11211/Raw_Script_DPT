@@ -155,3 +155,31 @@ def test_sklearn_model_on_csv(model_path: str,
     result['predicted_labels'] = pred_labels
     return result
 
+
+def test_isolation_forest_on_csv(model_path: str,
+                                  test_csv_path: str,
+                                  label_col: Optional[str] = 'label',
+                                  benign_label: str = 'benign') -> Dict[str, Any]:
+    import joblib
+    from sklearn.metrics import classification_report, confusion_matrix
+    model = joblib.load(model_path)
+    df = pd.read_csv(test_csv_path, low_memory=False)
+    # numeric-only features as in training
+    X = df.select_dtypes(include=[np.number])
+    y_pred = model.predict(X)  # 1 for inlier, -1 for outlier
+    result: Dict[str, Any] = {
+        'n_rows': len(X),
+        'n_features': X.shape[1],
+    }
+    # Prediction counts
+    from collections import Counter
+    pred_counts = Counter(y_pred)
+    result['prediction_counts_raw'] = {int(k): int(v) for k, v in pred_counts.items()}
+    if label_col and label_col in df.columns:
+        y_true_labels = df[label_col]
+        y_true = np.array([1 if str(v).lower() == str(benign_label).lower() else -1 for v in y_true_labels])
+        report = classification_report(y_true, y_pred, labels=[1, -1], target_names=['Normal (1)', 'Anomaly (-1)'], zero_division=0)
+        cm = confusion_matrix(y_true, y_pred, labels=[1, -1])
+        result['report'] = report
+        result['confusion_matrix'] = pd.DataFrame(cm, index=['Normal (1)','Anomaly (-1)'], columns=['Pred Normal','Pred Anomaly'])
+    return result

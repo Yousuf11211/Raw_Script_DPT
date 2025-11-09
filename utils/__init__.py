@@ -50,6 +50,7 @@ from .models import (
     train_isolation_forest_on_csv,
     train_xgb_on_csv,
     test_sklearn_model_on_csv,
+    test_isolation_forest_on_csv,
 )
 
 __all__ = [
@@ -65,5 +66,5 @@ __all__ = [
     'prepare_feature_matrix','compute_random_forest_importance','compute_xgboost_importance','compute_xgb_per_label_importance','merge_importances','get_near_zero_features',
     'sep_analyze_and_classify','sep_process_combined','sep_process_proportional','SEP_DEFAULT_INPUT_FOLDER','SEP_DEFAULT_OUTPUT_FOLDER',
     'parse_param_list','tune_xgboost','tune_random_forest','refit_and_evaluate','build_heatmap_table',
-    'train_isolation_forest_on_csv','train_xgb_on_csv','test_sklearn_model_on_csv'
+    'train_isolation_forest_on_csv','train_xgb_on_csv','test_sklearn_model_on_csv','test_isolation_forest_on_csv'
 ]
