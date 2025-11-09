@@ -32,6 +32,13 @@ from .feature_importance import (
     merge_importances,
     get_near_zero_features,
 )
+from .separate_sets import (
+    analyze_and_classify as sep_analyze_and_classify,
+    process_and_save_combined as sep_process_combined,
+    process_and_save_proportionally as sep_process_proportional,
+    DEFAULT_INPUT_FOLDER as SEP_DEFAULT_INPUT_FOLDER,
+    DEFAULT_OUTPUT_FOLDER as SEP_DEFAULT_OUTPUT_FOLDER,
+)
 
 __all__ = [
     'initialize_state', 'get_resource_metrics', 'data_source_selector',
@@ -43,5 +50,6 @@ __all__ = [
     'balance_dataframe', 'label_distribution',
     'downscale_from_folder', 'downscale_from_file', 'downscale_from_lazyframe',
     'get_reference_columns', 'compare_rows_between_folders',
-    'prepare_feature_matrix','compute_random_forest_importance','compute_xgboost_importance','compute_xgb_per_label_importance','merge_importances','get_near_zero_features'
+    'prepare_feature_matrix','compute_random_forest_importance','compute_xgboost_importance','compute_xgb_per_label_importance','merge_importances','get_near_zero_features',
+    'sep_analyze_and_classify','sep_process_combined','sep_process_proportional','SEP_DEFAULT_INPUT_FOLDER','SEP_DEFAULT_OUTPUT_FOLDER'
 ]
