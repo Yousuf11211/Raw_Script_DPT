@@ -4,6 +4,7 @@ import polars as pl
 import pandas as pd
 import streamlit as st
 from typing import Dict, List, Tuple, Optional
+import ipaddress
 
 
 def _float_columns(schema: Dict[str, pl.datatypes.DataType]) -> List[str]:
@@ -202,3 +203,201 @@ def coerce_columns_to_numeric(lf: pl.LazyFrame, columns: List[str], dtype: pl.Da
     if not columns:
         return lf
     return lf.with_columns([pl.col(c).cast(dtype, strict=False).alias(c) for c in columns if c in lf.columns])
+
+
+def coerce_columns_to_datetime(lf: pl.LazyFrame, columns: List[str], fmt: Optional[str] = None) -> pl.LazyFrame:
+    """Lazily parse selected columns as Datetime. If fmt provided, use it; else attempt flexible ISO parsing.
+    Falls back to leaving column unchanged if parsing fails silently (strict=False)."""
+    if not columns:
+        return lf
+    parsed = []
+    for c in columns:
+        if c in lf.columns:
+            col_utf8 = pl.col(c).cast(pl.Utf8, strict=False)
+            if fmt:
+                parsed.append(col_utf8.str.strptime(pl.Datetime, format=fmt, strict=False, exact=False).alias(c))
+            else:
+                # try multiple common layouts by chaining coalesce; if first fails returns nulls
+                attempt = (
+                    col_utf8.str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S.%f", strict=False, exact=False)
+                    .fill_null(col_utf8.str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S", strict=False, exact=False))
+                    .fill_null(col_utf8.str.strptime(pl.Datetime, format="%Y-%m-%d", strict=False, exact=False))
+                )
+                parsed.append(attempt.alias(c))
+    if not parsed:
+        return lf
+    return lf.with_columns(parsed)
+
+
+def coerce_ipv4_to_integer(lf: pl.LazyFrame, columns: List[str]) -> pl.LazyFrame:
+    """Convert dotted-decimal IPv4 addresses to UInt32 integers lazily for selected columns.
+    Non-IPv4 strings become null."""
+    if not columns:
+        return lf
+    exprs = []
+    for c in columns:
+        if c in lf.columns:
+            s = pl.col(c).cast(pl.Utf8, strict=False).str.split_exact(".", 3)
+            expr = (
+                (s.struct.field("field_0").cast(pl.UInt32) * pl.lit(256**3)) +
+                (s.struct.field("field_1").cast(pl.UInt32) * pl.lit(256**2)) +
+                (s.struct.field("field_2").cast(pl.UInt32) * pl.lit(256)) +
+                (s.struct.field("field_3").cast(pl.UInt32))
+            ).alias(c).cast(pl.UInt32, strict=False)
+            exprs.append(expr)
+    if not exprs:
+        return lf
+    return lf.with_columns(exprs)
+
+# ---- Encoding Candidates Analysis ----
+
+def analyze_encoding_candidates(lf: pl.LazyFrame, datetime_patterns: Optional[List[str]] = None, sample_size: int = 100) -> pd.DataFrame:
+    """Robustly analyze columns and flag encoding vs numeric vs datetime without raising parse errors.
+    Datetime detection uses sampling + pattern matching.
+    Returns DataFrame with columns: Feature, UniqueCount, NonNullCount, HasString, IsNumeric, IsDatetime,
+    NeedsEncoding, CardinalityLabel, SuggestedEncoding."""
+    st.info("Analyzing columns for encoding candidates (robust sampling)...")
+    if datetime_patterns is None:
+        datetime_patterns = [
+            "%Y-%m-%d %H:%M:%S.%f",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d",
+        ]
+
+    # Unique & null counts
+    unique_df = lf.select(pl.all().n_unique()).collect()
+    unique_pd = unique_df.transpose(include_header=True, header_name="Feature", column_names=["UniqueCount"]).to_pandas()
+    null_df = lf.select(pl.all().null_count()).collect()
+    null_pd = null_df.transpose(include_header=True, header_name="Feature", column_names=["NullCount"]).to_pandas()
+
+    # Numeric cast failures (treat as string presence proxy)
+    cast_fail_exprs = [pl.col(c).cast(pl.Float64, strict=False).is_null().sum().alias(c) for c in lf.columns]
+    cast_fail_df = lf.select(cast_fail_exprs).collect()
+    cast_fail_pd = cast_fail_df.transpose(include_header=True, header_name="Feature", column_names=["PostCastNullCount"]).to_pandas()
+
+    merged = unique_pd.merge(null_pd, on="Feature").merge(cast_fail_pd, on="Feature")
+    total_rows = lf.select(pl.count()).collect().item()
+
+    # Pre-sample columns for datetime detection
+    from datetime import datetime
+    def is_datetime_like(samples: List[str]) -> bool:
+        if not samples:
+            return False
+        success = 0
+        total = 0
+        for val in samples:
+            total += 1
+            parsed = False
+            for pat in datetime_patterns:
+                try:
+                    datetime.strptime(val, pat)
+                    parsed = True
+                    break
+                except Exception:
+                    continue
+            if parsed:
+                success += 1
+        return (total > 0) and (success / total >= 0.9)
+
+    # Collect samples per column (limited) - do individually to avoid huge memory
+    column_samples: Dict[str, List[str]] = {}
+    for col in lf.columns:
+        try:
+            sample_series = (
+                lf.select(pl.col(col).drop_nulls().cast(pl.Utf8, strict=False).head(sample_size))
+                .collect()
+                .to_pandas()
+            )
+            if not sample_series.empty:
+                column_samples[col] = [s for s in sample_series[col].tolist() if isinstance(s, str)]
+            else:
+                column_samples[col] = []
+        except Exception:
+            column_samples[col] = []
+
+    # IP detection helper
+    def is_ip_like(samples: List[str]) -> bool:
+        if not samples:
+            return False
+        success = 0
+        total = 0
+        for val in samples:
+            total += 1
+            try:
+                ipaddress.ip_address(val)
+                success += 1
+            except Exception:
+                continue
+        return (total > 0) and (success / total >= 0.9)
+
+    records = []
+    for _, row in merged.iterrows():
+        feature = row['Feature']
+        unique_count = int(row['UniqueCount'])
+        null_count = int(row['NullCount'])
+        post_cast_null = int(row['PostCastNullCount'])
+        non_null = total_rows - null_count
+        cast_failures = max(post_cast_null - null_count, 0)
+        has_string = cast_failures > 0
+        samples = column_samples.get(feature, [])
+        is_datetime = is_datetime_like(samples)
+        is_ip = is_ip_like(samples)
+        is_numeric = (not has_string) and (not is_datetime) and (not is_ip)
+        needs_encoding = (not is_numeric) and (not is_datetime) and (not is_ip) and unique_count > 1
+        # Cardinality classification & suggestion
+        if unique_count <= 1:
+            card_label = 'constant'
+            suggested = 'drop or ignore'
+        elif unique_count == 2:
+            card_label = 'binary'
+            suggested = 'binary / one-hot'
+        elif unique_count <= 20:
+            card_label = 'low'
+            suggested = 'one-hot'
+        elif unique_count <= 100:
+            card_label = 'medium'
+            suggested = 'label encoding'
+        else:
+            card_label = 'high'
+            suggested = 'embedding / target encoding'
+        if is_numeric:
+            suggested = 'none'
+            needs_encoding = False
+        if is_datetime:
+            suggested = 'datetime parse'
+            needs_encoding = False
+        if is_ip:
+            suggested = 'ip parse'
+            needs_encoding = False
+        records.append({
+            'Feature': feature,
+            'UniqueCount': unique_count,
+            'NonNullCount': non_null,
+            'HasString': has_string,
+            'IsNumeric': is_numeric,
+            'IsDatetime': is_datetime,
+            'IsIP': is_ip,
+            'NeedsEncoding': needs_encoding,
+            'CardinalityLabel': card_label,
+            'SuggestedEncoding': suggested
+        })
+
+    df = pd.DataFrame(records).sort_values(['NeedsEncoding','CardinalityLabel','UniqueCount'], ascending=[False, True, True])
+    return df
+
+
+def sample_string_values(lf: pl.LazyFrame, column: str, max_samples: int = 10) -> list:
+    """
+    Return up to max_samples unique string values from the given column (excluding nulls and numeric values).
+    """
+    try:
+        # Cast to float, find where cast fails (is null but original is not null)
+        col_expr = pl.col(column)
+        num_expr = col_expr.cast(pl.Float64, strict=False)
+        mask = (~col_expr.is_null()) & num_expr.is_null()
+        # Get unique string values
+        df = lf.filter(mask).select(col_expr).unique().limit(max_samples).collect().to_pandas()
+        return df[column].dropna().astype(str).tolist()
+    except Exception as e:
+        st.error(f"Failed to sample string values for {column}: {e}")
+        return []
