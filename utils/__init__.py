@@ -53,6 +53,7 @@ from .models import (
     test_isolation_forest_on_csv,
 )
 from .merge_polars import merge_shuffle_partitioned, merge_shuffle_single
+from .outliers import analyze_iqr_outliers, remove_outliers_lazy, generate_outlier_plot, collect_for_plots
 
 __all__ = [
     'initialize_state', 'get_resource_metrics', 'data_source_selector',
@@ -68,5 +69,6 @@ __all__ = [
     'sep_analyze_and_classify','sep_process_combined','sep_process_proportional','SEP_DEFAULT_INPUT_FOLDER','SEP_DEFAULT_OUTPUT_FOLDER',
     'parse_param_list','tune_xgboost','tune_random_forest','refit_and_evaluate','build_heatmap_table',
     'train_isolation_forest_on_csv','train_xgb_on_csv','test_sklearn_model_on_csv','test_isolation_forest_on_csv',
-    'merge_shuffle_partitioned','merge_shuffle_single'
+    'merge_shuffle_partitioned','merge_shuffle_single',
+    'analyze_iqr_outliers','remove_outliers_lazy','generate_outlier_plot','collect_for_plots'
 ]
