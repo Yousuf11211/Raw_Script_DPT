@@ -54,6 +54,8 @@ from .models import (
 )
 from .merge_polars import merge_shuffle_partitioned, merge_shuffle_single
 from .outliers import analyze_iqr_outliers, remove_outliers_lazy, generate_outlier_plot, collect_for_plots
+from .shap_utils import shap_explain_tree_model
+from .frontend_test_generator import load_benign_attack, generate_testing_batches
 
 __all__ = [
     'initialize_state', 'get_resource_metrics', 'data_source_selector',
@@ -70,5 +72,7 @@ __all__ = [
     'parse_param_list','tune_xgboost','tune_random_forest','refit_and_evaluate','build_heatmap_table',
     'train_isolation_forest_on_csv','train_xgb_on_csv','test_sklearn_model_on_csv','test_isolation_forest_on_csv',
     'merge_shuffle_partitioned','merge_shuffle_single',
-    'analyze_iqr_outliers','remove_outliers_lazy','generate_outlier_plot','collect_for_plots'
+    'analyze_iqr_outliers','remove_outliers_lazy','generate_outlier_plot','collect_for_plots',
+    'shap_explain_tree_model',
+    'load_benign_attack','generate_testing_batches'
 ]
