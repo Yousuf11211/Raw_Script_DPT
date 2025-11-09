@@ -1,0 +1,83 @@
+import streamlit as st
+import os
+from utils.ui_helpers import initialize_state, get_resource_metrics
+from utils import merge_shuffle_partitioned, merge_shuffle_single
+
+st.set_page_config(page_title="Polars Merge & Shuffle", layout="wide")
+initialize_state()
+
+st.title("🔄 Merge & Shuffle CSVs (Polars)")
+st.caption("Merge many CSVs efficiently using Polars; write partitioned shuffled shards or a single shuffled file.")
+
+with st.sidebar:
+    st.header("System Health")
+    m = get_resource_metrics()
+    st.metric("CPU %", f"{m['CPU %']:.1f}%")
+    st.metric("RAM %", f"{m['RAM %']:.1f}%")
+
+col1, col2 = st.columns(2)
+with col1:
+    input_folder = st.text_input("Input folder", value="Raw_Data_2018")
+with col2:
+    pattern = st.text_input("File pattern", value="*.csv")
+
+colA, colB, colC = st.columns(3)
+with colA:
+    num_parts = st.number_input("Number of partitions", min_value=1, max_value=500, value=20, step=1)
+with colB:
+    seed = st.number_input("Shuffle seed", min_value=0, max_value=1_000_000, value=42, step=1)
+with colC:
+    infer_len = st.number_input("Infer schema length", min_value=50, max_value=100000, value=1000, step=50)
+
+recursive = st.checkbox("Search recursively", value=True)
+
+mode = st.radio("Output mode", ["Partitioned", "Single File"], index=0, horizontal=True)
+
+out_folder = st.text_input("Output folder (for partitioned or temp)", value="Processed_Polars")
+single_file_path = st.text_input("Single file output path (if Single File mode)", value="Processed_Polars/merged_shuffled.csv")
+
+run_btn = st.button("Run Merge & Shuffle", use_container_width=True)
+
+if run_btn:
+    if not os.path.isdir(input_folder):
+        st.error(f"Input folder not found: {input_folder}")
+    else:
+        with st.spinner("Merging & Shuffling (Polars lazy scan)..."):
+            if mode == "Partitioned":
+                meta = merge_shuffle_partitioned(
+                    input_folder=input_folder,
+                    output_folder=out_folder,
+                    pattern=pattern,
+                    num_parts=int(num_parts),
+                    seed=int(seed),
+                    infer_schema_length=int(infer_len),
+                    recursive=recursive,
+                )
+            else:
+                temp_folder = os.path.join(out_folder, "_temp_parts")
+                meta = merge_shuffle_single(
+                    input_folder=input_folder,
+                    output_file=single_file_path,
+                    temp_folder=temp_folder,
+                    pattern=pattern,
+                    num_parts=int(num_parts),
+                    seed=int(seed),
+                    infer_schema_length=int(infer_len),
+                    recursive=recursive,
+                )
+        if meta.get("error"):
+            st.error(meta["error"])
+        else:
+            st.success("Merge & shuffle completed.")
+            st.write(f"Total input files: {len(meta['input_files'])}")
+            st.write(f"Total rows (estimated): {meta.get('total_rows','(not counted)')}")
+            if mode == "Partitioned":
+                with st.expander("Partitioned output files"):
+                    for f in meta['created_files']:
+                        st.write(f)
+            else:
+                st.info(f"Single shuffled file: {meta.get('single_file')}")
+                with st.expander("Temporary shard files"):
+                    for f in meta['created_files']:
+                        st.write(f)
+
