@@ -22,6 +22,7 @@ from .data_quality import (
 )
 from .data_analysis import get_class_distribution_report, get_dominance_report, get_value_label_breakdown
 from .balancing import balance_dataframe, label_distribution
+from .downscale import downscale_from_folder, downscale_from_file, downscale_from_lazyframe
 
 __all__ = [
     'initialize_state', 'get_resource_metrics', 'data_source_selector',
@@ -30,5 +31,6 @@ __all__ = [
     'analyze_inf_columns', 'drop_inf_columns_lazy', 'impute_inf_with_median',
     'unique_counts_report', 'analyze_constant_low_variance', 'drop_columns_lazy', 'analyze_mixed_types', 'coerce_columns_to_numeric', 'analyze_encoding_candidates', 'coerce_columns_to_datetime', 'coerce_ipv4_to_integer',
     'get_class_distribution_report', 'get_dominance_report', 'get_value_label_breakdown',
-    'balance_dataframe', 'label_distribution'
+    'balance_dataframe', 'label_distribution',
+    'downscale_from_folder', 'downscale_from_file', 'downscale_from_lazyframe'
 ]
