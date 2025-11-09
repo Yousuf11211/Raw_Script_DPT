@@ -14,7 +14,15 @@ def find_label_column(df: pd.DataFrame) -> Optional[str]:
     return None
 
 
-def _downscale_dataframe(df: pd.DataFrame, output_folder: str, benign_sampling_fraction: float, random_state: int, source_name: str) -> Dict[str, Any]:
+def _downscale_dataframe(
+    df: pd.DataFrame,
+    output_folder: str,
+    benign_sampling_fraction: float,
+    random_state: int,
+    source_name: str,
+    attack_sampling_fraction: float = 1.0,
+    selected_attack_labels: Optional[List[str]] = None,
+) -> Dict[str, Any]:
     os.makedirs(output_folder, exist_ok=True)
     output_benign = os.path.join(output_folder, "benign.csv")
     output_attacks = os.path.join(output_folder, "attacks.csv")
@@ -33,12 +41,23 @@ def _downscale_dataframe(df: pd.DataFrame, output_folder: str, benign_sampling_f
     if label_col != "label":
         df = df.rename(columns={label_col: "label"})
 
-    is_benign = df["label"].astype(str).str.lower().eq("benign")
+    # Split benign vs attack
+    labels_lower = df["label"].astype(str).str.lower()
+    is_benign = labels_lower.eq("benign")
     benign_df = df.loc[is_benign]
-    attack_df = df.loc[~is_benign]
+    attack_df = df.loc[~is_benign].copy()
 
+    # Filter attack labels if user provided selection
+    if selected_attack_labels:
+        sel_lower = {l.lower() for l in selected_attack_labels}
+        attack_df = attack_df[attack_df["label"].astype(str).str.lower().isin(sel_lower)]
+
+    # Sample benign
     sampled_benign = benign_df.sample(frac=benign_sampling_fraction, random_state=random_state) if not benign_df.empty else benign_df
     final_benign = sampled_benign.sample(frac=1, random_state=random_state).reset_index(drop=True)
+    # Sample attacks if fraction < 1.0
+    if attack_sampling_fraction < 1.0 and not attack_df.empty:
+        attack_df = attack_df.sample(frac=attack_sampling_fraction, random_state=random_state)
     final_attacks = attack_df.sample(frac=1, random_state=random_state).reset_index(drop=True)
 
     if not final_benign.empty:
@@ -57,6 +76,9 @@ def _downscale_dataframe(df: pd.DataFrame, output_folder: str, benign_sampling_f
         "rows_in": len(df),
         "rows_kept_benign": len(final_benign),
         "rows_kept_attacks": len(final_attacks),
+        "benign_sampling_fraction": benign_sampling_fraction,
+        "attack_sampling_fraction": attack_sampling_fraction,
+        "selected_attack_labels": selected_attack_labels or "ALL",
     })
 
     return result
@@ -67,6 +89,8 @@ def downscale_from_file(
     output_folder: str,
     benign_sampling_fraction: float = 0.1,
     random_state: int = 42,
+    attack_sampling_fraction: float = 1.0,
+    selected_attack_labels: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     try:
         df = pd.read_csv(input_file, low_memory=False)
@@ -78,6 +102,8 @@ def downscale_from_file(
         benign_sampling_fraction=benign_sampling_fraction,
         random_state=random_state,
         source_name=input_file,
+        attack_sampling_fraction=attack_sampling_fraction,
+        selected_attack_labels=selected_attack_labels,
     )
 
 
@@ -86,6 +112,8 @@ def downscale_from_lazyframe(
     output_folder: str,
     benign_sampling_fraction: float = 0.1,
     random_state: int = 42,
+    attack_sampling_fraction: float = 1.0,
+    selected_attack_labels: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     df = lf.collect().to_pandas()
     return _downscale_dataframe(
@@ -94,6 +122,8 @@ def downscale_from_lazyframe(
         benign_sampling_fraction=benign_sampling_fraction,
         random_state=random_state,
         source_name="current_lazy_frame",
+        attack_sampling_fraction=attack_sampling_fraction,
+        selected_attack_labels=selected_attack_labels,
     )
 
 
@@ -102,6 +132,8 @@ def downscale_from_folder(
     output_folder: str,
     benign_sampling_fraction: float = 0.1,
     random_state: int = 42,
+    attack_sampling_fraction: float = 1.0,
+    selected_attack_labels: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Walk input_folder, read CSVs, sample benign fraction per file (if any benign present), keep all attack rows.
@@ -134,23 +166,34 @@ def downscale_from_folder(
             if label_col != "label":
                 df = df.rename(columns={label_col: "label"})
 
-            is_benign_file = df["label"].astype(str).str.lower().eq("benign").any()
-            if is_benign_file:
-                sample_df = df.sample(frac=benign_sampling_fraction, random_state=random_state)
-                benign_dfs.append(sample_df)
+            labels_lower = df["label"].astype(str).str.lower()
+            is_benign_rows = labels_lower.eq("benign")
+            benign_part = df.loc[is_benign_rows]
+            attack_part = df.loc[~is_benign_rows].copy()
+            # Filter attack labels if selection provided
+            if selected_attack_labels:
+                sel_lower = {l.lower() for l in selected_attack_labels}
+                attack_part = attack_part[attack_part["label"].astype(str).str.lower().isin(sel_lower)]
+            # Sample benign part
+            if not benign_part.empty:
+                benign_part = benign_part.sample(frac=benign_sampling_fraction, random_state=random_state)
+                benign_dfs.append(benign_part)
                 per_file.append({
                     "file": path,
                     "type": "benign",
                     "rows_in": len(df),
-                    "rows_kept": len(sample_df)
+                    "rows_kept": len(benign_part)
                 })
-            else:
-                attack_dfs.append(df)
+            if not attack_part.empty:
+                # Sample attacks per file if fraction < 1.0
+                if attack_sampling_fraction < 1.0:
+                    attack_part = attack_part.sample(frac=attack_sampling_fraction, random_state=random_state)
+                attack_dfs.append(attack_part)
                 per_file.append({
                     "file": path,
                     "type": "attack",
                     "rows_in": len(df),
-                    "rows_kept": len(df)
+                    "rows_kept": len(attack_part)
                 })
 
     result: Dict[str, Any] = {
@@ -158,7 +201,10 @@ def downscale_from_folder(
         "output_attacks_path": output_attacks,
         "benign_rows": 0,
         "attacks_rows": 0,
-        "per_file": per_file
+        "per_file": per_file,
+        "benign_sampling_fraction": benign_sampling_fraction,
+        "attack_sampling_fraction": attack_sampling_fraction,
+        "selected_attack_labels": selected_attack_labels or "ALL",
     }
 
     if benign_dfs:

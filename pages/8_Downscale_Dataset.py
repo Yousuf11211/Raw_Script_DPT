@@ -38,6 +38,16 @@ with col3:
 with col4:
     rand_state = st.number_input("Random seed", min_value=0, max_value=999999, value=42, step=1)
 
+# Attack selection controls
+st.markdown("### Attack Selection (Optional)")
+colA, colB = st.columns(2)
+with colA:
+    attack_frac = st.slider("Attack sampling fraction", 0.01, 1.0, 1.00, 0.01, help="Set < 1.0 to sample attacks as well.")
+with colB:
+    attack_labels_text = st.text_input("Attack labels to include (comma-separated)", value="", help="Leave empty to include all attack labels.")
+
+selected_attack_labels = [s.strip() for s in attack_labels_text.split(',') if s.strip()] or None
+
 current_lf = st.session_state.get('current_lazy_frame')
 current_path = st.session_state.get('current_file_path')
 
@@ -53,6 +63,8 @@ if st.button("Run Downscale", use_container_width=True):
                     output_folder=output_folder,
                     benign_sampling_fraction=float(benign_frac),
                     random_state=int(rand_state),
+                    attack_sampling_fraction=float(attack_frac),
+                    selected_attack_labels=selected_attack_labels,
                 )
     elif mode == "Specific File Path":
         if not input_file or not os.path.isfile(input_file):
@@ -64,6 +76,8 @@ if st.button("Run Downscale", use_container_width=True):
                     output_folder=output_folder,
                     benign_sampling_fraction=float(benign_frac),
                     random_state=int(rand_state),
+                    attack_sampling_fraction=float(attack_frac),
+                    selected_attack_labels=selected_attack_labels,
                 )
     else:  # Scan Folder
         if not os.path.isdir(input_folder):
@@ -75,6 +89,8 @@ if st.button("Run Downscale", use_container_width=True):
                     output_folder=output_folder,
                     benign_sampling_fraction=float(benign_frac),
                     random_state=int(rand_state),
+                    attack_sampling_fraction=float(attack_frac),
+                    selected_attack_labels=selected_attack_labels,
                 )
 
     if result:
@@ -86,6 +102,7 @@ if st.button("Run Downscale", use_container_width=True):
             st.subheader("Results")
             st.write(f"Benign rows: {result.get('benign_rows', 0):,}")
             st.write(f"Attack rows: {result.get('attacks_rows', 0):,}")
+            st.caption(f"Benign fraction: {float(benign_frac):.2f} | Attack fraction: {float(attack_frac):.2f} | Attack labels: {selected_attack_labels or 'ALL'}")
             if "benign_label_counts" in result:
                 st.markdown("#### Benign label counts")
                 st.json(result["benign_label_counts"])
