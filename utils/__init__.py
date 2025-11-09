@@ -24,6 +24,14 @@ from .data_analysis import get_class_distribution_report, get_dominance_report, 
 from .balancing import balance_dataframe, label_distribution
 from .downscale import downscale_from_folder, downscale_from_file, downscale_from_lazyframe
 from .compare_datasets import get_reference_columns, compare_rows_between_folders
+from .feature_importance import (
+    prepare_feature_matrix,
+    compute_random_forest_importance,
+    compute_xgboost_importance,
+    compute_xgb_per_label_importance,
+    merge_importances,
+    get_near_zero_features,
+)
 
 __all__ = [
     'initialize_state', 'get_resource_metrics', 'data_source_selector',
@@ -34,5 +42,6 @@ __all__ = [
     'get_class_distribution_report', 'get_dominance_report', 'get_value_label_breakdown',
     'balance_dataframe', 'label_distribution',
     'downscale_from_folder', 'downscale_from_file', 'downscale_from_lazyframe',
-    'get_reference_columns', 'compare_rows_between_folders'
+    'get_reference_columns', 'compare_rows_between_folders',
+    'prepare_feature_matrix','compute_random_forest_importance','compute_xgboost_importance','compute_xgb_per_label_importance','merge_importances','get_near_zero_features'
 ]
