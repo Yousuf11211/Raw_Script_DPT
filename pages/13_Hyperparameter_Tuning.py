@@ -1,13 +1,18 @@
 import streamlit as st
 import pandas as pd
 import os
+import polars as pl
 from sklearn.ensemble import RandomForestClassifier
-from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
-from utils.feature_importance import prepare_feature_matrix
+from utils.ui_helpers import initialize_state, get_resource_metrics, common_header, get_lazy_data_reader
+from utils.feature_importance import (
+    prepare_feature_matrix,
+    compute_random_forest_importance,
+    compute_xgboost_importance,
+    compute_xgb_per_label_importance,
+    merge_importances,
+    get_near_zero_features,
+)
 from utils import (
-    parse_param_list,
-    tune_xgboost,
-    tune_random_forest,
     refit_and_evaluate,
     build_heatmap_table,
 )
@@ -15,7 +20,6 @@ from utils import (
 st.set_page_config(page_title="Hyperparameter Tuning", layout="wide")
 initialize_state()
 
-# Header for selecting the training CSV
 header_train = common_header(
     "⚙️ Hyperparameter Tuning (RandomForest & XGBoost)",
     num_inputs=1,
@@ -30,14 +34,11 @@ with st.sidebar:
     st.metric("CPU %", f"{m['CPU %']:.1f}%")
     st.metric("RAM %", f"{m['RAM %']:.1f}%")
 
-# Current dataset from session OR load from selected path
 lf = st.session_state.get('current_lazy_frame')
 file_path = st.session_state.get('current_file_path')
 
-# If user picked a training CSV explicitly, prefer that by reading via Polars scan
 if train_csv_selected:
     try:
-        import polars as pl
         lf = pl.scan_csv(train_csv_selected)
         file_path = train_csv_selected
         st.session_state['current_lazy_frame'] = lf
@@ -46,10 +47,9 @@ if train_csv_selected:
         st.error(f"Failed to lazy-load training CSV: {e}")
 
 if lf is None:
-    st.info("Load a dataset on the Home page or select a Training CSV above.")
+    st.info("Select a Training CSV using the header above.")
     st.stop()
 
-# Controls
 st.subheader("Run Feature Importance Analysis")
 method_choice = st.multiselect(
     "Choose methods",
@@ -61,7 +61,6 @@ rf_estimators = st.number_input("RandomForest n_estimators", min_value=50, max_v
 xgb_estimators = st.number_input("XGBoost n_estimators", min_value=50, max_value=1000, value=100, step=10)
 near_zero_threshold = st.number_input("Near-zero importance threshold (%)", min_value=0.0, max_value=5.0, value=0.1, step=0.05)
 
-# Sampling and optional drop
 sample_frac = st.slider("Row sampling fraction (for speed)", 0.05, 1.0, 1.0, 0.05)
 apply_drop = st.checkbox("Allow dropping near-zero features from current dataset", value=False)
 
@@ -73,17 +72,17 @@ if st.button("Run Importance", use_container_width=True):
         rf_df = xgb_df = None
         if "RandomForest" in method_choice or "Compare Both" in method_choice:
             with st.spinner("Training RandomForest..."):
-                rf_df = utils.feature_importance.compute_random_forest_importance(X, y, n_estimators=int(rf_estimators))
+                rf_df = compute_random_forest_importance(X, y, n_estimators=int(rf_estimators))
                 st.success("RandomForest importance computed.")
         if "XGBoost" in method_choice or "Compare Both" in method_choice:
             with st.spinner("Training XGBoost..."):
-                xgb_df = utils.feature_importance.compute_xgboost_importance(X, y, n_estimators=int(xgb_estimators))
+                xgb_df = compute_xgboost_importance(X, y, n_estimators=int(xgb_estimators))
                 if xgb_df is None:
-                    st.warning("XGBoost not installed. Run 'pip install xgboost' to enable XGBoost analysis.")
+                    st.warning("XGBoost not installed. Run 'pip install xgboost'.")
                 else:
                     st.success("XGBoost importance computed.")
         if "Compare Both" in method_choice:
-            merged = utils.feature_importance.merge_importances(rf_df, xgb_df)
+            merged = merge_importances(rf_df, xgb_df)
             st.subheader("Merged Importance Results")
             st.dataframe(merged.head(100), use_container_width=True)
             st.download_button("Download merged CSV", merged.to_csv(index=False), file_name="merged_feature_importance.csv")
@@ -96,17 +95,16 @@ if st.button("Run Importance", use_container_width=True):
                 st.subheader("XGBoost Importance")
                 st.dataframe(xgb_df.head(50), use_container_width=True)
                 st.download_button("Download XGB importance CSV", xgb_df.to_csv(index=False), file_name="xgb_feature_importance.csv")
-        # Near-zero features (report and optionally drop)
         to_drop = []
         if rf_df is not None:
-            rf_zero = utils.feature_importance.get_near_zero_features(rf_df, near_zero_threshold, 'rf_importance_pct')
+            rf_zero = get_near_zero_features(rf_df, near_zero_threshold, 'rf_importance_pct')
             if rf_zero:
                 st.warning(f"RandomForest near-zero features (< {near_zero_threshold}%): {len(rf_zero)}")
                 with st.expander("RF near-zero list"):
                     st.write(rf_zero)
                 to_drop.extend(rf_zero)
         if xgb_df is not None:
-            xgb_zero = utils.feature_importance.get_near_zero_features(xgb_df, near_zero_threshold, 'xgb_importance_pct')
+            xgb_zero = get_near_zero_features(xgb_df, near_zero_threshold, 'xgb_importance_pct')
             if xgb_zero:
                 st.warning(f"XGBoost near-zero features (< {near_zero_threshold}%): {len(xgb_zero)}")
                 with st.expander("XGB near-zero list"):
@@ -118,10 +116,9 @@ if st.button("Run Importance", use_container_width=True):
                 st.session_state['current_lazy_frame'] = new_lf
                 st.session_state['applied_filters'].append(f"Drop near-zero importance ({len(to_drop)} features)")
                 st.success("Scheduled lazy drop of near-zero features.")
-        # Per-label analysis
         if per_label and xgb_df is not None:
             with st.spinner("Running per-label XGBoost One-vs-Rest analysis..."):
-                per_label_maps = utils.feature_importance.compute_xgb_per_label_importance(X, y)
+                per_label_maps = compute_xgb_per_label_importance(X, y)
             if per_label_maps:
                 st.subheader("Per-Label XGBoost Importance (Top 15 each)")
                 for label_name, df_imp in per_label_maps.items():
@@ -132,7 +129,6 @@ if st.button("Run Importance", use_container_width=True):
     except Exception as e:
         st.error(f"Failed to compute importance: {e}")
 
-# Refit & Evaluate section: select Test CSV using a small header row
 st.markdown("---")
 st.subheader("Refit Best Model & Evaluate")
 header_eval = common_header(
@@ -156,7 +152,6 @@ if refit_button:
             if 'label' not in test_df.columns:
                 st.error("Test data must have a 'label' column.")
             else:
-                # Reuse X and y prepared earlier if available
                 if 'X' not in locals() or 'y' not in locals():
                     with st.spinner("Preparing training matrix from selected Training CSV..."):
                         X, y, diag = prepare_feature_matrix(st.session_state['current_lazy_frame'], sample_frac=1.0)
@@ -187,7 +182,6 @@ if refit_button:
         except Exception as e:
             st.error(f"Evaluation failed: {e}")
 
-# Heatmap preview (if available)
 st.markdown("---")
 st.subheader("Tuning Heatmap Preview")
 heat_cols = st.columns(2)

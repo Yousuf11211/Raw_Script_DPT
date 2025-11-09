@@ -1,5 +1,4 @@
 import streamlit as st
-import polars as pl
 from utils.ui_helpers import initialize_state, get_resource_metrics, common_header, get_lazy_data_reader
 from utils.data_quality import map_requested_columns, drop_columns_lazy
 from utils.io_utils import write_lazyframe_to_csv, default_output_path
@@ -25,13 +24,12 @@ with st.sidebar:
 lf = st.session_state.get('current_lazy_frame')
 file_path = st.session_state.get('current_file_path')
 if lf is None:
-    st.info("Go to Home to select or upload a CSV first.")
+    st.info("Select a CSV using the header above.")
     st.stop()
 
 # Get current columns early for use in actions below
 all_columns = list(lf.columns)
 
-# Base columns to remove (for reference)
 BASE_COLUMNS_TO_REMOVE = [
     'flow_id','src_ip','dst_ip','timestamp','active_cov','active_max','active_mean','active_median',
     'active_min','active_mode','active_skewness','active_std','active_variance','bwd_cwr_flag_counts',
@@ -66,7 +64,6 @@ BASE_COLUMNS_TO_REMOVE = [
     'fwd_syn_flag_percentage_in_total'
 ]
 
-# Show base columns to remove for reference
 with st.expander("Base columns to remove (from batch script)"):
     st.write(BASE_COLUMNS_TO_REMOVE)
     if st.button("Delete ALL Base Columns", key="delete_all_base_cols"):
@@ -81,13 +78,10 @@ with st.expander("Base columns to remove (from batch script)"):
             if base_not_found:
                 with st.expander("Base columns not found in current dataset"):
                     st.write(base_not_found)
-            # update lf and columns reference for subsequent manual deletions
             lf = lf_new
             all_columns = list(lf.columns)
 
-# Show column list and a text area to paste names
 st.subheader("Select columns to delete")
-
 with st.expander("Available columns"):
     st.write(all_columns)
 
@@ -97,7 +91,6 @@ requested = []
 if input_mode == "Type/Paste names":
     typed = st.text_area("Columns to delete (comma or newline separated)", height=120)
     if typed:
-        # Split by comma/newline
         parts = [p.strip() for p in typed.replace("\n", ",").split(",")]
         requested = [p for p in parts if p]
 else:

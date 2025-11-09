@@ -25,7 +25,7 @@ with st.sidebar:
 lf = st.session_state.get('current_lazy_frame')
 file_path = st.session_state.get('current_file_path')
 if lf is None:
-    st.info("Go to Home to select or upload a CSV first.")
+    st.info("Select a CSV using the header above.")
     st.stop()
 
 row_count = lf.select(pl.count()).collect().item()
@@ -41,7 +41,6 @@ if st.button("Run Mixed-Type Analysis", use_container_width=True):
 
 mt_df = st.session_state.get('mixed_types_df')
 if mt_df is not None and not mt_df.empty:
-    # Flag problematic columns (string or inf present along with numbers)
     mt_df['HasString'] = mt_df['string'] > 0
     mt_df['HasInf'] = mt_df['inf'] > 0
     mt_df['HasNumeric'] = (mt_df['integer'] + mt_df['float']) > 0
@@ -51,7 +50,6 @@ if mt_df is not None and not mt_df.empty:
     with st.expander("Full Mixed-Type Report"):
         st.dataframe(mt_df, use_container_width=True)
 
-    # Problem summaries
     prob_cols_string = mt_df.loc[mt_df['MixedWithString'], 'Feature'].tolist()
     prob_cols_inf = mt_df.loc[mt_df['MixedWithInf'], 'Feature'].tolist()
 
@@ -78,7 +76,7 @@ if mt_df is not None and not mt_df.empty:
     with col1:
         to_coerce = st.multiselect("Columns to coerce to Float64:", options=list(mt_df['Feature']))
         if st.button("Apply Coerce to Numeric (Lazy)"):
-            lf_new = coerce_columns_to_numeric(lf, to_coerce, dtype=pl.Float64)
+            lf_new = coerce_columns_to_numeric(lf, to_coerce, dtype=pl.Float64())
             st.session_state['current_lazy_frame'] = lf_new
             st.session_state['applied_filters'].append(f"Coerce to numeric ({len(to_coerce)} cols)")
             st.success("Scheduled lazy coercion to numeric.")

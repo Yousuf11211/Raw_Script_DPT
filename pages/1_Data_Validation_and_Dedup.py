@@ -1,6 +1,6 @@
 import streamlit as st
 import polars as pl
-from utils.ui_helpers import initialize_state, data_source_selector, get_resource_metrics, common_header, get_lazy_data_reader
+from utils.ui_helpers import initialize_state, get_resource_metrics, common_header, get_lazy_data_reader
 from utils.data_cleaning import (
     get_validation_report_and_filter_plan,
     get_duplicate_columns,
@@ -22,20 +22,20 @@ if hdr['input_paths'][0]:
     if lf_loaded is not None:
         st.session_state['current_lazy_frame'] = lf_loaded
 
-# Ensure a dataset is selected; allow selection here too for convenience
+# Ensure a dataset is selected
 with st.sidebar:
     st.header("System Health")
     m = get_resource_metrics()
     st.metric("CPU %", f"{m['CPU %']:.1f}%")
     st.metric("RAM %", f"{m['RAM %']:.1f}%")
     st.divider()
-    st.caption("You can pick/replace the dataset on the Home page.")
+    st.caption("Pick a CSV using the page header.")
 
 lf = st.session_state.get('current_lazy_frame')
 file_path = st.session_state.get('current_file_path')
 
 if lf is None:
-    st.info("Go to Home to select or upload a CSV first.")
+    st.info("Select a CSV using the header above.")
     st.stop()
 
 # Overview

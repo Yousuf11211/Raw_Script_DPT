@@ -1,6 +1,5 @@
 import streamlit as st
 import os
-import polars as pl
 from utils.ui_helpers import initialize_state, get_resource_metrics, common_header, get_lazy_data_reader
 from utils import (
     analyze_iqr_outliers,
@@ -32,7 +31,7 @@ with st.sidebar:
 lf = st.session_state.get('current_lazy_frame')
 file_path = st.session_state.get('current_file_path')
 if lf is None:
-    st.info("Load a dataset on the Home page first.")
+    st.info("Select a CSV using the header above.")
     st.stop()
 
 multiplier = st.slider("IQR multiplier", 0.5, 3.0, 1.5, 0.1)

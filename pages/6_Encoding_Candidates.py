@@ -25,7 +25,7 @@ with st.sidebar:
 lf = st.session_state.get('current_lazy_frame')
 file_path = st.session_state.get('current_file_path')
 if lf is None:
-    st.info("Go to Home to select or upload a CSV first.")
+    st.info("Select a CSV using the header above.")
     st.stop()
 
 row_count = lf.select(pl.count()).collect().item()
@@ -80,7 +80,7 @@ if enc_df is not None and not enc_df.empty:
     with colA:
         to_coerce = st.multiselect("Columns to coerce to numeric:", options=list(enc_df['Feature']))
         if st.button("Apply Coerce (Lazy)"):
-            lf_new = coerce_columns_to_numeric(lf, to_coerce, dtype=pl.Float64)
+            lf_new = coerce_columns_to_numeric(lf, to_coerce, dtype=pl.Float64())
             st.session_state['current_lazy_frame'] = lf_new
             st.session_state['applied_filters'].append(f"Coerce encoding cols ({len(to_coerce)} cols)")
             st.success("Scheduled lazy coercion.")
