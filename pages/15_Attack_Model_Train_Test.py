@@ -2,11 +2,13 @@ import streamlit as st
 import os
 import joblib
 import pandas as pd
-from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
 from utils import train_xgb_on_csv, test_sklearn_model_on_csv
 
 st.set_page_config(page_title="Attack Model (Train & Test)", layout="wide")
 initialize_state()
+inject_global_styles()
+render_global_nav(active_page_hint="Model Training")
 
 # Training header: select training CSV and output folder for model
 train_header = common_header(
@@ -18,12 +20,6 @@ train_header = common_header(
 train_csv = train_header['input_paths'][0]
 model_out_folder = train_header['output_folder'] or "Attack_Model"
 model_out = os.path.join(model_out_folder, "training_model.pkl")
-
-with st.sidebar:
-    st.header("System Health")
-    m = get_resource_metrics()
-    st.metric("CPU %", f"{m['CPU %']:.1f}%")
-    st.metric("RAM %", f"{m['RAM %']:.1f}%")
 
 st.markdown("Parameters")
 colA, colB, colC, colD = st.columns(4)

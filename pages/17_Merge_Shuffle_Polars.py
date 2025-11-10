@@ -1,10 +1,12 @@
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
 from utils import merge_shuffle_partitioned, merge_shuffle_single
 
 st.set_page_config(page_title="Polars Merge & Shuffle", layout="wide")
 initialize_state()
+inject_global_styles()
+render_global_nav(active_page_hint="Data Processing")
 
 # Header for selecting input folder and output folder
 hdr = common_header(
@@ -15,12 +17,6 @@ hdr = common_header(
 )
 sel_input_folder = hdr['input_paths'][0]
 sel_out_folder = hdr['output_folder'] or "Processed_Polars"
-
-with st.sidebar:
-    st.header("System Health")
-    m = get_resource_metrics()
-    st.metric("CPU %", f"{m['CPU %']:.1f}%")
-    st.metric("RAM %", f"{m['RAM %']:.1f}%")
 
 st.caption("Merge many CSVs efficiently using Polars; write partitioned shuffled shards or a single shuffled file.")
 

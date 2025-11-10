@@ -1,10 +1,12 @@
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
 from utils.compare_datasets import get_reference_columns, compare_rows_between_folders
 
 st.set_page_config(page_title="Compare Raw vs Processed", layout="wide")
 initialize_state()
+inject_global_styles()
+render_global_nav(active_page_hint="Utilities")
 
 header = common_header(
     "🔍 Compare Raw vs Processed CSV Folders",
@@ -15,12 +17,6 @@ header = common_header(
     ],
     default_output_folder=""
 )
-
-with st.sidebar:
-    st.header("System Health")
-    m = get_resource_metrics()
-    st.metric("CPU %", f"{m['CPU %']:.1f}%")
-    st.metric("RAM %", f"{m['RAM %']:.1f}%")
 
 st.markdown("Use this tool to verify column consistency and row coverage between a raw data folder and a processed output folder.")
 
@@ -58,7 +54,7 @@ if st.button("Check Columns", use_container_width=True):
                     st.json(proc_info['mismatches'])
 
 st.markdown("### Row Set Comparison")
-mode = st.radio("Row comparison mode", ["hash", "full"], index=0, help="Hash mode is memory efficient; full stores entire row tuples (large memory).")
+mode = st.radio("Row comparison mode", ["hash", "full"], index=0, help="Hash mode is memory efficient; full stores entire row tuples (large memory).", horizontal=True)
 hash_method = st.selectbox("Hash method", ["md5", "sha1", "sha256"], index=0)
 sample_limit = st.number_input("Sample rows to show", min_value=1, max_value=50, value=10)
 

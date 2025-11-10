@@ -1,10 +1,12 @@
 import streamlit as st
 import polars as pl
-from utils.ui_helpers import initialize_state, get_resource_metrics, common_header, get_lazy_data_reader
+from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header, get_lazy_data_reader
 from utils.data_analysis import get_class_distribution_report, get_dominance_report, get_value_label_breakdown
 
 st.set_page_config(page_title="Dominance & Reports", layout="wide")
 initialize_state()
+inject_global_styles()
+render_global_nav(active_page_hint="Data Cleaning")
 
 # Header for dataset selection
 hdr = common_header("📈 Dominance & Reports", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
@@ -15,15 +17,9 @@ if hdr['input_paths'][0]:
     if lf_loaded is not None:
         st.session_state['current_lazy_frame'] = lf_loaded
 
-with st.sidebar:
-    st.header("System Health")
-    m = get_resource_metrics()
-    st.metric("CPU %", f"{m['CPU %']:.1f}%")
-    st.metric("RAM %", f"{m['RAM %']:.1f}%")
-
 lf = st.session_state.get('current_lazy_frame')
 if lf is None:
-    st.info("Go to Home to select or upload a CSV first.")
+    st.info("Select a CSV using the header above.")
     st.stop()
 
 row_count = lf.select(pl.count()).collect().item()

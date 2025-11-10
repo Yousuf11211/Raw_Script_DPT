@@ -1,5 +1,5 @@
 import streamlit as st
-from utils.ui_helpers import initialize_state, get_resource_metrics, common_header, get_lazy_data_reader
+from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header, get_lazy_data_reader
 from utils.feature_importance import (
     prepare_feature_matrix,
     compute_random_forest_importance,
@@ -12,6 +12,8 @@ from utils.feature_importance import (
 # Page setup
 st.set_page_config(page_title="Feature Importance", layout="wide")
 initialize_state()
+inject_global_styles()
+render_global_nav(active_page_hint="Data Analysis")
 
 # Header for dataset selection
 hdr = common_header("📊 Feature Importance (RandomForest vs XGBoost)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
@@ -24,17 +26,11 @@ if hdr['input_paths'][0]:
 
 st.title("📊 Feature Importance (RandomForest vs XGBoost)")
 
-with st.sidebar:
-    st.header("System Health")
-    m = get_resource_metrics()
-    st.metric("CPU %", f"{m['CPU %']:.1f}%")
-    st.metric("RAM %", f"{m['RAM %']:.1f}%")
-
 # Current dataset from session
 lf = st.session_state.get('current_lazy_frame')
 file_path = st.session_state.get('current_file_path')
 if lf is None:
-    st.info("Load a dataset on the Home page first.")
+    st.info("Load a dataset from the header above.")
     st.stop()
 
 # Controls

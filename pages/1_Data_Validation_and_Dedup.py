@@ -1,6 +1,6 @@
 import streamlit as st
 import polars as pl
-from utils.ui_helpers import initialize_state, get_resource_metrics, common_header, get_lazy_data_reader
+from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header, get_lazy_data_reader
 from utils.data_cleaning import (
     get_validation_report_and_filter_plan,
     get_duplicate_columns,
@@ -12,6 +12,8 @@ from utils.io_utils import write_lazyframe_to_csv, default_output_path
 
 st.set_page_config(page_title="Data Validation & Dedup", layout="wide")
 initialize_state()
+inject_global_styles()
+render_global_nav(active_page_hint="Data Cleaning")
 
 # Common header to select a CSV if desired
 hdr = common_header("🧹 Data Validation & Deduplication", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
@@ -21,15 +23,6 @@ if hdr['input_paths'][0]:
     lf_loaded = get_lazy_data_reader(path)
     if lf_loaded is not None:
         st.session_state['current_lazy_frame'] = lf_loaded
-
-# Ensure a dataset is selected
-with st.sidebar:
-    st.header("System Health")
-    m = get_resource_metrics()
-    st.metric("CPU %", f"{m['CPU %']:.1f}%")
-    st.metric("RAM %", f"{m['RAM %']:.1f}%")
-    st.divider()
-    st.caption("Pick a CSV using the page header.")
 
 lf = st.session_state.get('current_lazy_frame')
 file_path = st.session_state.get('current_file_path')

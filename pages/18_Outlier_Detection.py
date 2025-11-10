@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, get_resource_metrics, common_header, get_lazy_data_reader
+from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header, get_lazy_data_reader
 from utils import (
     analyze_iqr_outliers,
     remove_outliers_lazy,
@@ -10,9 +10,11 @@ from utils import (
 
 st.set_page_config(page_title="Outlier Detection (IQR)", layout="wide")
 initialize_state()
+inject_global_styles()
+render_global_nav(active_page_hint="Data Processing")
 
 # Header for dataset selection
-hdr = common_header("📈 Outlier Detection & Handling (IQR)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="outlier_plots")
+hdr = common_header("📊 Outlier Detection & Handling (IQR)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="outlier_plots")
 if hdr['input_paths'][0]:
     path = hdr['input_paths'][0]
     st.session_state['current_file_path'] = path
@@ -21,12 +23,6 @@ if hdr['input_paths'][0]:
         st.session_state['current_lazy_frame'] = lf_loaded
 
 st.caption("Analyze numeric columns for IQR-based outliers, inspect plots, and optionally remove or cap them.")
-
-with st.sidebar:
-    st.header("System Health")
-    m = get_resource_metrics()
-    st.metric("CPU %", f"{m['CPU %']:.1f}%")
-    st.metric("RAM %", f"{m['RAM %']:.1f}%")
 
 lf = st.session_state.get('current_lazy_frame')
 file_path = st.session_state.get('current_file_path')

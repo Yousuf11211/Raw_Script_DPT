@@ -6,6 +6,8 @@ from utils.io_utils import write_lazyframe_to_csv, default_output_path
 
 st.set_page_config(page_title="INF Handling", layout="wide")
 uih.initialize_state()
+uih.inject_global_styles()
+uih.render_global_nav(active_page_hint="Data Cleaning")
 
 # Common header to select a CSV (optional)
 hdr = uih.common_header("♾️ INF Value Analysis & Handling", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
@@ -16,19 +18,11 @@ if hdr['input_paths'][0]:
     if lf_loaded is not None:
         uih.st.session_state['current_lazy_frame'] = lf_loaded
 
-st.title("♾️ INF Value Analysis & Handling")
-
-with st.sidebar:
-    st.header("System Health")
-    m = uih.get_resource_metrics()
-    st.metric("CPU %", f"{m['CPU %']:.1f}%")
-    st.metric("RAM %", f"{m['RAM %']:.1f}%")
-
 lf = st.session_state.get('current_lazy_frame')
 file_path = st.session_state.get('current_file_path')
 
 if lf is None:
-    st.info("Go to Home to select or upload a CSV first.")
+    st.info("Select a CSV using the header above.")
     st.stop()
 
 row_count = lf.select(pl.count()).collect().item()

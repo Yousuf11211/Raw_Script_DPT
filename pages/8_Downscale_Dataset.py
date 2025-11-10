@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
 from utils.downscale import (
     downscale_from_folder,
     downscale_from_file,
@@ -11,6 +11,8 @@ from utils.downscale import (
 
 st.set_page_config(page_title="Downscale Dataset", layout="wide")
 initialize_state()
+inject_global_styles()
+render_global_nav(active_page_hint="Data Processing")
 
 # Header for selecting input folder (optional) and output folder
 hdr = common_header(
@@ -21,12 +23,6 @@ hdr = common_header(
 )
 sel_input_folder = hdr['input_paths'][0]
 sel_output_folder = hdr['output_folder'] or DEFAULT_OUTPUT_FOLDER
-
-with st.sidebar:
-    st.header("System Health")
-    m = get_resource_metrics()
-    st.metric("CPU %", f"{m['CPU %']:.1f}%")
-    st.metric("RAM %", f"{m['RAM %']:.1f}%")
 
 mode = st.radio("Source Mode", ["Current Loaded File", "Specific File Path", "Scan Folder"], index=0, horizontal=True)
 
@@ -63,7 +59,7 @@ if st.button("Run Downscale", use_container_width=True):
     result = {}
     if mode == "Current Loaded File":
         if current_lf is None:
-            st.error("No file currently loaded. Go to Home and select a CSV first.")
+            st.error("No file currently loaded. Go to any data page and select a CSV first.")
         else:
             with st.spinner("Collecting current lazyframe and downscaling..."):
                 result = downscale_from_lazyframe(

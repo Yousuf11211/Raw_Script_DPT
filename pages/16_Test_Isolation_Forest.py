@@ -1,10 +1,12 @@
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
 from utils import test_isolation_forest_on_csv
 
 st.set_page_config(page_title="Test Isolation Forest (Benign)", layout="wide")
 initialize_state()
+inject_global_styles()
+render_global_nav(active_page_hint="Model Testing")
 
 header = common_header(
     "🧪 Test Isolation Forest — Benign vs Anomaly",
@@ -18,12 +20,6 @@ header = common_header(
 model_path, test_csv_path = header['input_paths']
 
 st.info("Use this to evaluate an Isolation Forest model on a labeled dataset. True labels are mapped to 1 (Benign) and -1 (Attack).")
-
-with st.sidebar:
-    st.header("System Health")
-    m = get_resource_metrics()
-    st.metric("CPU %", f"{m['CPU %']:.1f}%")
-    st.metric("RAM %", f"{m['RAM %']:.1f}%")
 
 label_col = st.text_input("Label column name", value="label")
 benign_name = st.text_input("Benign label value", value="Benign")

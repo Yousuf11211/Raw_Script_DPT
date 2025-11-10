@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
 from utils import (
     sep_analyze_and_classify,
     sep_process_combined,
@@ -11,6 +11,8 @@ from utils import (
 
 st.set_page_config(page_title="Separate and Save Benign/Attack Sets", layout="wide")
 initialize_state()
+inject_global_styles()
+render_global_nav(active_page_hint="Data Processing")
 
 # Header for selecting input folder and output folder
 hdr = common_header(
@@ -21,12 +23,6 @@ hdr = common_header(
 )
 sel_input_folder = hdr['input_paths'][0]
 sel_output_folder = hdr['output_folder'] or SEP_DEFAULT_OUTPUT_FOLDER
-
-with st.sidebar:
-    st.header("System Health")
-    m = get_resource_metrics()
-    st.metric("CPU %", f"{m['CPU %']:.1f}%")
-    st.metric("RAM %", f"{m['RAM %']:.1f}%")
 
 st.markdown("Split large folders into Benign and Attack output files with your chosen size and strategy.")
 

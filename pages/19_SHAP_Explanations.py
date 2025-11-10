@@ -1,10 +1,12 @@
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
 from utils import shap_explain_tree_model
 
 st.set_page_config(page_title="SHAP Explanations", layout="wide")
 initialize_state()
+inject_global_styles()
+render_global_nav(active_page_hint="Model Testing")
 
 header = common_header(
     "🧠 SHAP Explanations for Tree Models",
@@ -19,12 +21,6 @@ header = common_header(
 model_path, test_csv, label_map = header['input_paths']
 
 st.caption("Explain predictions for a saved RandomForest/XGBoost model on a test CSV. One explanation per class plus per-row top features.")
-
-with st.sidebar:
-    st.header("System Health")
-    m = get_resource_metrics()
-    st.metric("CPU %", f"{m['CPU %']:.1f}%")
-    st.metric("RAM %", f"{m['RAM %']:.1f}%")
 
 colA, colB = st.columns(2)
 with colA:

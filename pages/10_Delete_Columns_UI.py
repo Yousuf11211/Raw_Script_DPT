@@ -1,10 +1,12 @@
 import streamlit as st
-from utils.ui_helpers import initialize_state, get_resource_metrics, common_header, get_lazy_data_reader
+from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header, get_lazy_data_reader
 from utils.data_quality import map_requested_columns, drop_columns_lazy
 from utils.io_utils import write_lazyframe_to_csv, default_output_path
 
 st.set_page_config(page_title="Delete Columns", layout="wide")
 initialize_state()
+inject_global_styles()
+render_global_nav(active_page_hint="Data Cleaning")
 
 # Header for dataset selection
 hdr = common_header("🗑️ Delete Columns (Dynamic)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
@@ -14,12 +16,6 @@ if hdr['input_paths'][0]:
     lf_loaded = get_lazy_data_reader(path)
     if lf_loaded is not None:
         st.session_state['current_lazy_frame'] = lf_loaded
-
-with st.sidebar:
-    st.header("System Health")
-    m = get_resource_metrics()
-    st.metric("CPU %", f"{m['CPU %']:.1f}%")
-    st.metric("RAM %", f"{m['RAM %']:.1f}%")
 
 lf = st.session_state.get('current_lazy_frame')
 file_path = st.session_state.get('current_file_path')

@@ -1,20 +1,17 @@
 import streamlit as st
 import os
 import pandas as pd
-from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav, common_header
 from utils.frontend_test_generator import generate_testing_batches
 
 st.set_page_config(page_title="Frontend Test Batch Generator", layout="wide")
 initialize_state()
+inject_global_styles()
+# Render top navigation; pass current page path for active state
+render_top_nav(current_page="pages/20_Frontend_Test_Batch_Generator.py")
 
-# Use common header: need two input files (benign + attack) and output folder with save toggle
-header = common_header("🧪 Frontend Test Batch Generator", num_inputs=2, input_labels=["Benign CSV", "Attack CSV"], default_output_folder="frontend_testing")
-
-with st.sidebar:
-    st.header("System Health")
-    m = get_resource_metrics()
-    st.metric("CPU %", f"{m['CPU %']:.1f}%")
-    st.metric("RAM %", f"{m['RAM %']:.1f}%")
+# Use common header: two input files (benign + attack) and output folder with save toggle
+header = common_header("Frontend Test Batch Generator", num_inputs=2, input_labels=["Benign CSV", "Attack CSV"], default_output_folder="frontend_testing")
 
 # Additional settings
 colA, colB, colC, colD = st.columns(4)

@@ -3,7 +3,7 @@ import pandas as pd
 import os
 import polars as pl
 from sklearn.ensemble import RandomForestClassifier
-from utils.ui_helpers import initialize_state, get_resource_metrics, common_header, get_lazy_data_reader
+from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
 from utils.feature_importance import (
     prepare_feature_matrix,
     compute_random_forest_importance,
@@ -19,24 +19,25 @@ from utils import (
 
 st.set_page_config(page_title="Hyperparameter Tuning", layout="wide")
 initialize_state()
+inject_global_styles()
+render_global_nav(active_page_hint="Model Training")
 
-header_train = common_header(
+# Unified header: Training CSV + Test CSV (optional) with output folder suppressed
+header = common_header(
     "⚙️ Hyperparameter Tuning (RandomForest & XGBoost)",
-    num_inputs=1,
-    input_specs=[{"label": "Training CSV", "kind": "file", "allowed_exts": [".csv"]}],
+    num_inputs=2,
+    input_specs=[
+        {"label": "Training CSV", "kind": "file", "allowed_exts": [".csv"]},
+        {"label": "Test CSV (optional for evaluation)", "kind": "file", "allowed_exts": [".csv"]},
+    ],
     default_output_folder=""
 )
-train_csv_selected = header_train['input_paths'][0]
-
-with st.sidebar:
-    st.header("System Health")
-    m = get_resource_metrics()
-    st.metric("CPU %", f"{m['CPU %']:.1f}%")
-    st.metric("RAM %", f"{m['RAM %']:.1f}%")
+train_csv_selected, test_csv_selected = header['input_paths']
 
 lf = st.session_state.get('current_lazy_frame')
 file_path = st.session_state.get('current_file_path')
 
+# Load training CSV if chosen (overwrite session dataset context for analysis)
 if train_csv_selected:
     try:
         lf = pl.scan_csv(train_csv_selected)
@@ -131,38 +132,31 @@ if st.button("Run Importance", use_container_width=True):
 
 st.markdown("---")
 st.subheader("Refit Best Model & Evaluate")
-header_eval = common_header(
-    "Test Data Selection",
-    num_inputs=1,
-    input_specs=[{"label": "Test CSV", "kind": "file", "allowed_exts": [".csv"]}],
-    default_output_folder=""
-)
-
-test_file_path = header_eval['input_paths'][0]
 model_choice = st.selectbox("Model to refit", ["RandomForest","XGBoost"], index=0)
 refit_button = st.button("Refit & Evaluate", use_container_width=True)
 
 if refit_button:
-    if not test_file_path or not os.path.isfile(test_file_path):
-        st.error("Provide valid test CSV path.")
+    if not test_csv_selected or not os.path.isfile(test_csv_selected):
+        st.error("Provide valid Test CSV path in header (second input).")
     else:
         try:
-            test_df = pd.read_csv(test_file_path, low_memory=False)
+            test_df = pd.read_csv(test_csv_selected, low_memory=False)
             test_df.columns = test_df.columns.str.lower()
             if 'label' not in test_df.columns:
                 st.error("Test data must have a 'label' column.")
             else:
+                # Ensure X,y from training dataset present
                 if 'X' not in locals() or 'y' not in locals():
-                    with st.spinner("Preparing training matrix from selected Training CSV..."):
+                    with st.spinner("Preparing training matrix from Training CSV..."):
                         X, y, diag = prepare_feature_matrix(st.session_state['current_lazy_frame'], sample_frac=1.0)
                 X_test = test_df.drop(columns=['label'])
                 y_test = test_df['label']
                 if model_choice == 'RandomForest':
                     rf_state = st.session_state.get('tuning_rf')
                     if not rf_state:
-                        st.error("Run RF tuning first.")
+                        st.error("Run RF tuning first (importance step).")
                     else:
-                        best_params = rf_state['best_params']
+                        best_params = rf_state['best_params'] if 'best_params' in rf_state else {'n_estimators': int(rf_estimators)}
                         model = RandomForestClassifier(random_state=42, **best_params)
                         report = refit_and_evaluate(model, X, y, X_test, y_test)
                         st.success("Refit complete.")
@@ -170,11 +164,11 @@ if refit_button:
                 else:
                     xgb_state = st.session_state.get('tuning_xgb')
                     if not xgb_state:
-                        st.error("Run XGB tuning first.")
+                        st.error("Run XGB tuning first (importance step).")
                     else:
                         from xgboost import XGBClassifier
-                        best_params = xgb_state['best_params']
-                        label_map = xgb_state['label_map']
+                        best_params = xgb_state['best_params'] if 'best_params' in xgb_state else {'n_estimators': int(xgb_estimators)}
+                        label_map = xgb_state.get('label_map')
                         model = XGBClassifier(random_state=42, use_label_encoder=False, eval_metric='mlogloss', **best_params)
                         report = refit_and_evaluate(model, X, y, X_test, y_test, label_map=label_map)
                         st.success("Refit complete.")

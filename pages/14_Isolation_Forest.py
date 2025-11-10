@@ -1,11 +1,13 @@
 import streamlit as st
 import os
 import joblib
-from utils.ui_helpers import initialize_state, get_resource_metrics, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
 from utils import train_isolation_forest_on_csv
 
 st.set_page_config(page_title="Isolation Forest (Benign Only)", layout="wide")
 initialize_state()
+inject_global_styles()
+render_global_nav(active_page_hint="Model Training")
 
 # Header for selecting benign CSV and output model folder
 hdr = common_header(
@@ -18,12 +20,6 @@ sel_benign_csv = hdr['input_paths'][0]
 sel_out_folder = hdr['output_folder'] or "Training_isolation_model_cleaned"
 
 st.info("This page trains an Isolation Forest on benign-only data. Do not use attack data here.")
-
-with st.sidebar:
-    st.header("System Health")
-    m = get_resource_metrics()
-    st.metric("CPU %", f"{m['CPU %']:.1f}%")
-    st.metric("RAM %", f"{m['RAM %']:.1f}%")
 
 st.subheader("Training Settings")
 col1, col2, col3 = st.columns(3)
