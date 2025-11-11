@@ -13,6 +13,7 @@ SCAN_ROOT_DISPLAY = "PROJECT ROOT"
 
 def inject_global_styles(hide_builtin_sidebar_nav: bool = True):
     """Inject CSS for consistent theming, including Soft Dark Mode and Navigation Alignment."""
+    # --- START CSS INJECTION FOR SOFT DARK LOOK & ALIGNMENT ---
     css = """
     <style>
       /* --- Soft Dark Theme Variables and Base Styles --- */
@@ -23,10 +24,14 @@ def inject_global_styles(hide_builtin_sidebar_nav: bool = True):
           --soft-blue: #8AA8F3; /* Primary Accent (Soft Lavender Blue) */
           --soft-blue-hover: #7A93D3;
           --border-color: rgba(255, 255, 255, 0.1);
+          --soft-green: #A3D9A5; /* Success Green */
+          --soft-yellow: #F7E59D; /* Warning Gold */
+          --soft-info: #C8D7E3; /* Info Blue-Gray */
       }
       body {
           background-color: var(--primary-bg);
           color: var(--text-color);
+          -webkit-font-smoothing: antialiased;
       }
       h1, h2, h3, h4, h5, h6, label {
           color: var(--text-color);
@@ -36,83 +41,91 @@ def inject_global_styles(hide_builtin_sidebar_nav: bool = True):
       /* Hide default multipage sidebar */
       %HIDE_SIDEBAR%
 
-      /* Containers/Metrics/Cards */
-      .stApp > header { background-color: var(--secondary-bg); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); }
+      /* 2. Soft Containers & Cards */
+      .stApp {
+          background-color: var(--primary-bg);
+      }
+      .stApp > header {
+          background-color: var(--secondary-bg);
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); 
+      }
+      .main .block-container {
+          padding-top: 1.5rem;
+          padding-bottom: 1.5rem;
+      }
       .stFrame, .stContainer, .stExpander, .stDataFrame, .stTextInput, .stAlert, .stMetric {
           border-radius: 12px !important;
           background-color: var(--secondary-bg);
           box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2); 
           border: 1px solid var(--border-color);
       }
-
-      /* --- Navigation Alignment and Styling --- */
-      /* Top nav container (Category buttons) - ALIGNMENT FIX */
-      .top-nav { 
-          display:flex; 
-          flex-wrap:wrap; 
-          gap:0.75rem; /* Increased gap for better spacing */
-          margin:0.25rem 0 0.75rem 0; 
-          align-items: center; /* Vertically align items */
+      /* Ensure Streamlit elements respect the dark text color */
+      div[data-testid="stText"], div[data-testid="stMarkdownContainer"] {
+          color: var(--text-color);
       }
 
-      /* Main Category Nav Button */
-      .nav-btn { 
-          cursor:pointer; 
-          background:var(--secondary-bg); 
-          color:var(--text-color); 
-          padding:0.55rem 0.90rem; 
-          border-radius:6px; 
-          font-size:0.9rem; /* Slightly larger text */
-          border:1px solid var(--border-color); 
-          text-decoration:none; 
-          line-height:1.1; 
-          transition:background .15s, transform .15s, box-shadow .15s; 
+
+      /* 3. Soft Buttons */
+      .stButton>button {
+          border-radius: 20px;
+          border: none !important;
+          padding: 0.5rem 1rem;
+          font-weight: 600;
+          transition: all 0.2s ease-in-out;
       }
-      .nav-btn:hover { 
-          background:var(--soft-blue-hover); 
-          color: white; 
-          transform:translateY(-2px); 
-          box-shadow:0 4px 8px rgba(0, 0, 0, 0.2);
-      }
-      .nav-btn.active { 
-          background:var(--soft-blue); 
-          color: #000000; /* Dark text on bright accent */
-          box-shadow:0 0 0 2px var(--soft-blue-hover); 
-          font-weight: bold;
+      .stButton>button:hover {
+          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+          transform: translateY(-1px);
       }
 
-      /* Submenu Nav Container - ALIGNMENT FIX */
-      .submenu-row { 
-          display:flex; 
-          flex-wrap:wrap; 
-          gap:0.5rem; 
-          margin:0.25rem 0 0.75rem 0; 
+      /* Primary buttons (Run Validation, Apply Drop) */
+      .stButton [data-testid="baseButton-secondary"] {
+          background-color: var(--soft-blue);
+          color: #000000 !important; /* Darker text for contrast on soft blue */
+      }
+      .stButton [data-testid="baseButton-secondary"]:hover {
+          background-color: #7A93D3;
       }
 
-      /* Submenu Tool Button */
-      .submenu-btn { 
-          cursor:pointer; 
-          background:var(--secondary-bg); 
-          color:var(--text-color); 
-          padding:0.45rem 0.75rem; 
-          border-radius:5px; 
-          font-size:0.8rem; 
-          border:1px solid var(--border-color); 
-          transition:background .15s, transform .15s; 
-          line-height:1.1;
+      /* --- Navigation Alignment and Styling (re-purposed for st.columns) --- */
+      /* Note: Since we are using st.columns in render_top_nav, we rely on Streamlit for grid layout. 
+         These original nav styles are mostly overridden by the new design, but we keep the structure 
+         if they target other elements. */
+
+      /* 4. Soft Alerts */
+      [data-testid="stAlert"] {
+          background-color: var(--secondary-bg) !important; 
+          border-left: 6px solid !important; 
       }
-      .submenu-btn:hover { 
-          background:var(--soft-blue-hover); 
-          color: white;
-          transform:translateY(-1px); 
+
+      /* Softening alert colors with background and border */
+      [data-testid="stAlert-success"] { border-left-color: var(--soft-green) !important; color: var(--soft-green) !important; }
+      [data-testid="stAlert-warning"] { border-left-color: var(--soft-yellow) !important; color: var(--soft-yellow) !important; }
+      [data-testid="stAlert-info"] { border-left-color: var(--soft-info) !important; color: var(--soft-info) !important; }
+
+      /* 5. Metrics */
+      [data-testid="stMetric"] {
+          background-color: var(--secondary-bg);
       }
-      .submenu-btn.active { 
-          background:var(--soft-blue); 
-          color: #000000;
-          box-shadow:0 0 0 2px var(--soft-blue-hover); 
+
+      /* 6. ALIGNMENT FIX (Kept from previous iteration, may not be needed with st.columns) */
+      /* This targets the column structure where the buttons are placed */
+      div.stVerticalBlock > div.stVerticalBlock {
+          /* Apply a grid or flexbox to the container holding the button blocks */
+          display: flex;
+          flex-direction: row; /* Layout children horizontally */
+          align-items: stretch; /* Make all columns the same height */
+          gap: 15px; /* Spacing between columns */
+      }
+      /* Ensure the button containers within the flexbox take up equal space */
+      div.stVerticalBlock > div.stVerticalBlock > div.stBlock {
+          flex: 1 1 0%; /* Flex magic: grow, shrink, and basis 0 */
+          min-width: 150px; /* Ensure a minimum size */
       }
     </style>
     """
+    # --- END CSS INJECTION ---
+
     hide_css = 'section[data-testid="stSidebarNav"] { display:none !important; }' if hide_builtin_sidebar_nav else ''
     st.markdown(css.replace('%HIDE_SIDEBAR%', hide_css), unsafe_allow_html=True)
 
@@ -171,7 +184,7 @@ def safe_switch_page(target: str):
 
 
 def render_top_nav(current_page: str | None = None, show_submenu: bool = True):
-    """Render top navigation with main category buttons and optional submenu for the active category."""
+    """Render top navigation with main category buttons (in a single row) and submenu (3-column grid)."""
     inferred_cat = PATH_TO_CATEGORY.get(current_page)
     if 'nav_active_category' not in st.session_state:
         st.session_state['nav_active_category'] = inferred_cat or list(GLOBAL_MENU.keys())[0]
@@ -180,25 +193,27 @@ def render_top_nav(current_page: str | None = None, show_submenu: bool = True):
 
     active_cat = st.session_state['nav_active_category']
 
-    # --- CATEGORY BUTTONS (Main Nav) ---
-    # Remain in the flexible CSS layout
-    st.markdown('<div class="top-nav">', unsafe_allow_html=True)
-    for cat in GLOBAL_MENU.keys():
-        is_active = (cat == active_cat)
-        # Using a container and HTML class for styling (assuming the CSS still uses .nav-btn)
-        # We need to manually add the active class to the button container using a wrapper for perfect visual sync
-        active_class = 'active' if is_active else ''
-        button_html = f'<div class="nav-btn-wrapper {active_class}">'
+    # --- CATEGORY BUTTONS: IN A SINGLE ROW ---
+    st.subheader("Navigation")
+    st.caption("Select Tool Category:")
 
-        # Since st.button cannot be styled with class, we use st.markdown/HTML structure
-        # NOTE: For Streamlit buttons to work inside the loop, it's safer to let Streamlit manage the loop and wrap the output.
-        # However, for pure alignment, we'll revert to the Python approach while keeping the CSS styles.
+    cat_names = list(GLOBAL_MENU.keys())
 
-        if st.button(cat, key=f'cat_btn_{cat}', help=f'Show {cat} tools'):
-            st.session_state['nav_active_category'] = cat
-            st.rerun()
+    # Create columns dynamically, one for each category button
+    # The columns will align the buttons horizontally in one row.
+    cat_cols = st.columns(len(cat_names))
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    for i, cat in enumerate(cat_names):
+        with cat_cols[i]:
+            is_active = (cat == active_cat)
+            btn_type = 'primary' if is_active else 'secondary'
+
+            # Button takes up the width of its column
+            if st.button(cat, key=f'cat_btn_{cat}', type=btn_type, help=f'Show {cat} tools', use_container_width=True):
+                st.session_state['nav_active_category'] = cat
+                st.rerun()
+
+    st.divider()
 
     # --- Metrics ---
     m = get_resource_metrics()
@@ -207,33 +222,34 @@ def render_top_nav(current_page: str | None = None, show_submenu: bool = True):
     mc2.metric("RAM %", f"{m['RAM %']:.1f}%")
     mc3.metric("RAM Used", f"{m['RAM Used (GB)']:.2f} GB")
 
-    # --- SUBMENU (Tool Buttons) ---
+    st.divider()
+
+    # --- SUBMENU (Tool Buttons): 3-COLUMN GRID ---
     if show_submenu:
         items = GLOBAL_MENU.get(active_cat, [])
         if items:
             st.markdown(f"#### {active_cat} Tools")
 
-            # --- FIX: FORCING A 3-COLUMN GRID ---
+            # Fixed Grid Setup
             COLUMNS_PER_ROW = 3
 
-            # Divide the list of items into rows
+            # Divide the list of items into rows of 3
             rows = [items[i:i + COLUMNS_PER_ROW] for i in range(0, len(items), COLUMNS_PER_ROW)]
 
             for row in rows:
-                # Create exactly 3 columns for this row
-                cols = st.columns(COLUMNS_PER_ROW)
+                # Create columns for this row
+                # We use len(row) here in case the last row has fewer than 3 items
+                cols = st.columns(len(row))
 
                 for j, (label, path) in enumerate(row):
                     with cols[j]:
                         is_active_tool = (current_page == path)
-
-                        # Set button type for visual style using Streamlit's types
                         btn_type = 'primary' if is_active_tool else 'secondary'
 
+                        # Buttons inside st.columns will align in a row
                         if st.button(label, key=f'sub_btn_{path}', help=path, type=btn_type, use_container_width=True):
                             if not is_active_tool:
                                 safe_switch_page(path)
-            # --- END FIXED GRID ---
 
         else:
             st.info("No tools registered for this category.")
