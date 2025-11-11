@@ -1,20 +1,16 @@
 import streamlit as st
 from utils.ui_helpers import inject_global_styles, render_global_nav, initialize_state
 
-st.set_page_config(page_title="Thesis Data Tool", layout="wide", initial_sidebar_state="expanded", page_icon="🚀")
+# Configure root launcher page (acts as redirect to landing); remove emoji icon per requirements
+st.set_page_config(page_title="Thesis Data Tool", layout="wide", initial_sidebar_state="collapsed")
 initialize_state()
 
-# Apply global styles & show nav even during redirect fallback
+# Apply global styles (hides default sidebar page list) then redirect to landing
 inject_global_styles()
-render_global_nav(active_page_hint="Landing")
 
-# Redirect to the Landing page under pages/
 try:
     st.switch_page("pages/0_Landing.py")
 except Exception:
+    # Fallback minimal content if switch_page not available
     st.title("Thesis Data Tool")
-    st.info("Use the hierarchical sidebar to navigate or click below.")
-    try:
-        st.page_link("pages/0_Landing.py", label="Go to Landing Page", icon="🚀")
-    except Exception:
-        st.write("Open the ‘0_Landing’ page from the sidebar.")
+    st.info("Unable to auto-redirect. Open the ‘0_Landing’ page from the page selector if visible.")
