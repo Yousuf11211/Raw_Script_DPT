@@ -1,16 +1,16 @@
+# Moved from root pages/4_Constant_and_LowVariance.py
 import streamlit as st
 import polars as pl
-from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header, get_lazy_data_reader
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav, common_header, get_lazy_data_reader
 from utils.data_quality import analyze_constant_low_variance, drop_columns_lazy
 from utils.io_utils import write_lazyframe_to_csv, default_output_path
 
 st.set_page_config(page_title="Constant & Low-Variance", layout="wide")
 initialize_state()
 inject_global_styles()
-render_global_nav(active_page_hint="Data Cleaning")
+render_top_nav(current_page="pages/DataCleaning/4_Constant_and_LowVariance.py")
 
-# Header for dataset selection
-hdr = common_header("🧬 Constant & Low-Variance Column Analysis", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
+hdr = common_header("Constant & Low-Variance Column Analysis", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
 if hdr['input_paths'][0]:
     path = hdr['input_paths'][0]
     st.session_state['current_file_path'] = path
@@ -63,7 +63,6 @@ if report_df is not None and not report_df.empty:
     else:
         st.info("No low-variance columns detected with current threshold.")
 
-    # Selection for deletion
     st.markdown("---")
     st.subheader("Select Columns to Drop")
     combined_options = constant_cols + [c for c in low_var_cols if c not in constant_cols]
@@ -84,3 +83,4 @@ if report_df is not None and not report_df.empty:
             ok = write_lazyframe_to_csv(st.session_state['current_lazy_frame'], out_path)
             if ok:
                 st.success(f"Saved to {out_path}")
+

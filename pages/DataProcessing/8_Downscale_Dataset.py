@@ -1,6 +1,7 @@
+# Moved from root pages/8_Downscale_Dataset.py
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav, common_header
 from utils.downscale import (
     downscale_from_folder,
     downscale_from_file,
@@ -12,11 +13,10 @@ from utils.downscale import (
 st.set_page_config(page_title="Downscale Dataset", layout="wide")
 initialize_state()
 inject_global_styles()
-render_global_nav(active_page_hint="Data Processing")
+render_top_nav(current_page="pages/DataProcessing/8_Downscale_Dataset.py")
 
-# Header for selecting input folder (optional) and output folder
 hdr = common_header(
-    "📉 Downscale Dataset (Create Small Benign/Attack Sets)",
+    "Downscale Dataset (Create Small Benign/Attack Sets)",
     num_inputs=1,
     input_specs=[{"label": "Input folder (optional)", "kind": "folder"}],
     default_output_folder=DEFAULT_OUTPUT_FOLDER
@@ -42,7 +42,6 @@ with col3:
 with col4:
     rand_state = st.number_input("Random seed", min_value=0, max_value=999999, value=42, step=1)
 
-# Attack selection controls
 st.markdown("### Attack Selection (Optional)")
 colA, colB = st.columns(2)
 with colA:
@@ -53,7 +52,6 @@ with colB:
 selected_attack_labels = [s.strip() for s in attack_labels_text.split(',') if s.strip()] or None
 
 current_lf = st.session_state.get('current_lazy_frame')
-current_path = st.session_state.get('current_file_path')
 
 if st.button("Run Downscale", use_container_width=True):
     result = {}
@@ -113,8 +111,6 @@ if st.button("Run Downscale", use_container_width=True):
             if "attacks_label_counts" in result:
                 st.markdown("#### Attack label counts")
                 st.json(result["attacks_label_counts"])
-
-            # Download links
             benign_path = result.get('output_benign_path')
             attacks_path = result.get('output_attacks_path')
             if benign_path and os.path.isfile(benign_path):
@@ -123,6 +119,6 @@ if st.button("Run Downscale", use_container_width=True):
             if attacks_path and os.path.isfile(attacks_path):
                 with open(attacks_path, 'rb') as f:
                     st.download_button("Download attacks.csv", f, file_name=os.path.basename(attacks_path))
-
             with st.expander("Per-file summary"):
                 st.json(result.get('per_file', []))
+

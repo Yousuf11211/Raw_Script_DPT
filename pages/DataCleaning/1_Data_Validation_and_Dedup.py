@@ -1,6 +1,7 @@
+# Moved from root pages/1_Data_Validation_and_Dedup.py
 import streamlit as st
 import polars as pl
-from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header, get_lazy_data_reader
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav, common_header, get_lazy_data_reader
 from utils.data_cleaning import (
     get_validation_report_and_filter_plan,
     get_duplicate_columns,
@@ -13,10 +14,9 @@ from utils.io_utils import write_lazyframe_to_csv, default_output_path
 st.set_page_config(page_title="Data Validation & Dedup", layout="wide")
 initialize_state()
 inject_global_styles()
-render_global_nav(active_page_hint="Data Cleaning")
+render_top_nav(current_page="pages/DataCleaning/1_Data_Validation_and_Dedup.py")
 
-# Common header to select a CSV if desired
-hdr = common_header("🧹 Data Validation & Deduplication", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
+hdr = common_header("Data Validation & Deduplication", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
 if hdr['input_paths'][0]:
     path = hdr['input_paths'][0]
     st.session_state['current_file_path'] = path
@@ -26,12 +26,10 @@ if hdr['input_paths'][0]:
 
 lf = st.session_state.get('current_lazy_frame')
 file_path = st.session_state.get('current_file_path')
-
 if lf is None:
     st.info("Select a CSV using the header above.")
     st.stop()
 
-# Overview
 row_count = lf.select(pl.count()).collect().item()
 col_count = len(lf.columns)
 st.metric("Rows", f"{row_count:,}")
@@ -54,7 +52,6 @@ if st.button("Run Validation & Apply Filter", use_container_width=True):
             st.json(report['label_breakdown'])
     lf = lf_validated
 
-# Save section for this step
 with st.expander("Save dataset to disk (after validation)"):
     default_path = default_output_path(file_path, suffix="validated")
     out_path = st.text_input("Output CSV path", value=default_path)
@@ -82,7 +79,6 @@ if st.button("Check Duplicate Columns", use_container_width=True):
         else:
             st.success("No duplicate columns found.")
 
-# Save section for this step
 with st.expander("Save dataset to disk (after column dedup)"):
     default_path = default_output_path(file_path, suffix="col_dedup")
     out_path = st.text_input("Output CSV path", value=default_path, key="save_cols")
@@ -115,3 +111,4 @@ with st.expander("Save dataset to disk (after row dedup)"):
         ok = write_lazyframe_to_csv(lf, out_path)
         if ok:
             st.success(f"Saved to {out_path}")
+

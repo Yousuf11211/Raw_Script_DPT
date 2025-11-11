@@ -1,6 +1,7 @@
+# Moved from root pages/12_Separate_and_Save_Sets.py
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav, common_header
 from utils import (
     sep_analyze_and_classify,
     sep_process_combined,
@@ -12,11 +13,10 @@ from utils import (
 st.set_page_config(page_title="Separate and Save Benign/Attack Sets", layout="wide")
 initialize_state()
 inject_global_styles()
-render_global_nav(active_page_hint="Data Processing")
+render_top_nav(current_page="pages/DataProcessing/12_Separate_and_Save_Sets.py")
 
-# Header for selecting input folder and output folder
 hdr = common_header(
-    "🗂️ Separate and Save Benign/Attack Sets",
+    "Separate and Save Benign/Attack Sets",
     num_inputs=1,
     input_specs=[{"label": "Input folder", "kind": "folder"}],
     default_output_folder=SEP_DEFAULT_OUTPUT_FOLDER
@@ -67,7 +67,6 @@ if st.button("Analyze Folder", use_container_width=True):
                 'output_folder': output_folder,
             }
 
-# Actions after analysis
 state = st.session_state.get('sep_analysis')
 if state:
     files_by_label = state['files_by_label']
@@ -105,7 +104,6 @@ if state:
         if attack_labels:
             if st.button("Create Attack files", use_container_width=True):
                 out_dir = os.path.join(state['output_folder'], 'Attacks')
-                # unique file list across attack labels
                 files = sorted(list({f for lbl in attack_labels for f in files_by_label.get(lbl, [])}))
                 res = sep_process_proportional(
                     file_list=files,
@@ -122,3 +120,4 @@ if state:
                         st.write(p)
         else:
             st.info("No attack labels found in analysis.")
+

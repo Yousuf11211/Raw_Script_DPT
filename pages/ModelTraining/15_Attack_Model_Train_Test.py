@@ -1,18 +1,18 @@
+# Moved from root pages/15_Attack_Model_Train_Test.py
 import streamlit as st
 import os
 import joblib
 import pandas as pd
-from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav, common_header
 from utils import train_xgb_on_csv, test_sklearn_model_on_csv
 
 st.set_page_config(page_title="Attack Model (Train & Test)", layout="wide")
 initialize_state()
 inject_global_styles()
-render_global_nav(active_page_hint="Model Training")
+render_top_nav(current_page="pages/ModelTraining/15_Attack_Model_Train_Test.py")
 
-# Training header: select training CSV and output folder for model
 train_header = common_header(
-    "🎯 Attack Classification Model — Train",
+    "Attack Classification Model — Train",
     num_inputs=1,
     input_specs=[{"label": "Training CSV", "kind": "file", "allowed_exts": [".csv"]}],
     default_output_folder="Attack_Model"
@@ -49,7 +49,6 @@ if st.button("Train XGBoost Model", use_container_width=True):
             with st.spinner("Training XGBoost model..."):
                 model, label_map, eval_dict = train_xgb_on_csv(train_csv, params, train_full=train_full)
             joblib.dump(model, model_out)
-            # Save label mapping text file next to model
             mapping_path = os.path.join(model_out_folder, 'training_label_mapping.txt')
             with open(mapping_path, 'w', encoding='utf-8') as f:
                 f.write("Label Encoding Mapping:\n")
@@ -66,9 +65,8 @@ if st.button("Train XGBoost Model", use_container_width=True):
             st.error(f"Training failed: {e}")
 
 st.markdown("---")
-# Testing header: model file, test CSV, optional label map, and output folder for artifacts
 test_header = common_header(
-    "🧪 Test a Saved Attack Model",
+    "Test a Saved Attack Model",
     num_inputs=3,
     input_specs=[
         {"label": "Model file (.pkl/.joblib)", "kind": "file", "allowed_exts": [".pkl", ".joblib"]},
@@ -120,3 +118,4 @@ if st.button("Run Test", use_container_width=True):
             df_full['predicted_label'] = res['predicted_labels']
             df_full.to_csv(os.path.join(output_folder, f"{base_name}_predictions.csv"), index=False)
             st.info(f"Saved full predictions CSV -> {os.path.join(output_folder, f'{base_name}_predictions.csv')}")
+

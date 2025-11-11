@@ -1,16 +1,16 @@
+# Moved from root pages/6_Encoding_Candidates.py
 import streamlit as st
 import polars as pl
-from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header, get_lazy_data_reader
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav, common_header, get_lazy_data_reader
 from utils.data_quality import analyze_encoding_candidates, drop_columns_lazy, coerce_columns_to_numeric, sample_string_values, coerce_columns_to_datetime, coerce_ipv4_to_integer
 from utils.io_utils import write_lazyframe_to_csv, default_output_path
 
 st.set_page_config(page_title="Encoding Candidates", layout="wide")
 initialize_state()
 inject_global_styles()
-render_global_nav(active_page_hint="Data Cleaning")
+render_top_nav(current_page="pages/DataCleaning/6_Encoding_Candidates.py")
 
-# Header for dataset selection
-hdr = common_header("🔡 Encoding Candidates Analysis", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
+hdr = common_header("Encoding Candidates Analysis", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
 if hdr['input_paths'][0]:
     path = hdr['input_paths'][0]
     st.session_state['current_file_path'] = path
@@ -47,7 +47,6 @@ if enc_df is not None and not enc_df.empty:
     if not needing.empty:
         st.warning(f"{len(needing)} columns flagged for encoding.")
         st.dataframe(needing[['Feature','UniqueCount','CardinalityLabel','SuggestedEncoding']], use_container_width=True)
-        # Diagnostic: show sample string values for each flagged column
         for col in needing['Feature']:
             with st.expander(f"Sample string values in '{col}'"):
                 samples = sample_string_values(lf, col, max_samples=10)
@@ -112,3 +111,4 @@ if enc_df is not None and not enc_df.empty:
             ok = write_lazyframe_to_csv(st.session_state['current_lazy_frame'], out_path)
             if ok:
                 st.success(f"Saved to {out_path}")
+

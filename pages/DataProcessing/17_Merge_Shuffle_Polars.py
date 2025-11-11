@@ -1,20 +1,15 @@
+# Moved from root pages/17_Merge_Shuffle_Polars.py
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav, common_header
 from utils import merge_shuffle_partitioned, merge_shuffle_single
 
 st.set_page_config(page_title="Polars Merge & Shuffle", layout="wide")
 initialize_state()
 inject_global_styles()
-render_global_nav(active_page_hint="Data Processing")
+render_top_nav(current_page="pages/DataProcessing/17_Merge_Shuffle_Polars.py")
 
-# Header for selecting input folder and output folder
-hdr = common_header(
-    "🔄 Merge & Shuffle CSVs (Polars)",
-    num_inputs=1,
-    input_specs=[{"label": "Input folder", "kind": "folder"}],
-    default_output_folder="Processed_Polars"
-)
+hdr = common_header("Merge & Shuffle CSVs (Polars)", num_inputs=1, input_specs=[{"label": "Input folder", "kind": "folder"}], default_output_folder="Processed_Polars")
 sel_input_folder = hdr['input_paths'][0]
 sel_out_folder = hdr['output_folder'] or "Processed_Polars"
 
@@ -85,3 +80,4 @@ if run_btn:
                 with st.expander("Temporary shard files"):
                     for f in meta['created_files']:
                         st.write(f)
+

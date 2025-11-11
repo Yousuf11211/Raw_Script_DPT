@@ -1,9 +1,10 @@
+# Moved from root pages/13_Hyperparameter_Tuning.py
 import streamlit as st
 import pandas as pd
 import os
 import polars as pl
 from sklearn.ensemble import RandomForestClassifier
-from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav, common_header
 from utils.feature_importance import (
     prepare_feature_matrix,
     compute_random_forest_importance,
@@ -20,11 +21,10 @@ from utils import (
 st.set_page_config(page_title="Hyperparameter Tuning", layout="wide")
 initialize_state()
 inject_global_styles()
-render_global_nav(active_page_hint="Model Training")
+render_top_nav(current_page="pages/ModelTraining/13_Hyperparameter_Tuning.py")
 
-# Unified header: Training CSV + Test CSV (optional) with output folder suppressed
 header = common_header(
-    "⚙️ Hyperparameter Tuning (RandomForest & XGBoost)",
+    "Hyperparameter Tuning (RandomForest & XGBoost)",
     num_inputs=2,
     input_specs=[
         {"label": "Training CSV", "kind": "file", "allowed_exts": [".csv"]},
@@ -37,7 +37,6 @@ train_csv_selected, test_csv_selected = header['input_paths']
 lf = st.session_state.get('current_lazy_frame')
 file_path = st.session_state.get('current_file_path')
 
-# Load training CSV if chosen (overwrite session dataset context for analysis)
 if train_csv_selected:
     try:
         lf = pl.scan_csv(train_csv_selected)
@@ -145,7 +144,6 @@ if refit_button:
             if 'label' not in test_df.columns:
                 st.error("Test data must have a 'label' column.")
             else:
-                # Ensure X,y from training dataset present
                 if 'X' not in locals() or 'y' not in locals():
                     with st.spinner("Preparing training matrix from Training CSV..."):
                         X, y, diag = prepare_feature_matrix(st.session_state['current_lazy_frame'], sample_frac=1.0)
@@ -202,3 +200,4 @@ if show_xgb_heat and st.session_state.get('tuning_xgb'):
 
 st.markdown("---")
 st.caption("If XGBoost missing, install with: pip install xgboost")
+

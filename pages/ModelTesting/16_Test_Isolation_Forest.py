@@ -1,15 +1,16 @@
+# Moved from root pages/16_Test_Isolation_Forest.py
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav, common_header
 from utils import test_isolation_forest_on_csv
 
 st.set_page_config(page_title="Test Isolation Forest (Benign)", layout="wide")
 initialize_state()
 inject_global_styles()
-render_global_nav(active_page_hint="Model Testing")
+render_top_nav(current_page="pages/ModelTesting/16_Test_Isolation_Forest.py")
 
 header = common_header(
-    "🧪 Test Isolation Forest — Benign vs Anomaly",
+    "Test Isolation Forest — Benign vs Anomaly",
     num_inputs=2,
     input_specs=[
         {"label": "Model path (.joblib)", "kind": "file", "allowed_exts": [".joblib"]},
@@ -38,3 +39,4 @@ if st.button("Run Isolation Test", use_container_width=True):
         if 'confusion_matrix' in res:
             st.subheader("Confusion Matrix")
             st.dataframe(res['confusion_matrix'], use_container_width=True)
+

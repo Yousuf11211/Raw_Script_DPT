@@ -1,17 +1,17 @@
+# Moved from root pages/14_Isolation_Forest.py
 import streamlit as st
 import os
 import joblib
-from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav, common_header
 from utils import train_isolation_forest_on_csv
 
 st.set_page_config(page_title="Isolation Forest (Benign Only)", layout="wide")
 initialize_state()
 inject_global_styles()
-render_global_nav(active_page_hint="Model Training")
+render_top_nav(current_page="pages/ModelTraining/14_Isolation_Forest.py")
 
-# Header for selecting benign CSV and output model folder
 hdr = common_header(
-    "🧪 Isolation Forest — Benign Data Model",
+    "Isolation Forest — Benign Data Model",
     num_inputs=1,
     input_specs=[{"label": "Benign CSV", "kind": "file", "allowed_exts": [".csv"]}],
     default_output_folder="Training_isolation_model_cleaned"
@@ -70,3 +70,4 @@ if st.button("Train Isolation Forest", use_container_width=True):
         joblib.dump(model, out_model)
         st.success(f"Model saved to {out_model}")
         st.json(stats)
+

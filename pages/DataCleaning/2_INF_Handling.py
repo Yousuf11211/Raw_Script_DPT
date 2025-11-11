@@ -1,3 +1,4 @@
+# Moved from root pages/2_INF_Handling.py
 import streamlit as st
 import polars as pl
 from utils import ui_helpers as uih
@@ -7,10 +8,9 @@ from utils.io_utils import write_lazyframe_to_csv, default_output_path
 st.set_page_config(page_title="INF Handling", layout="wide")
 uih.initialize_state()
 uih.inject_global_styles()
-uih.render_global_nav(active_page_hint="Data Cleaning")
+uih.render_top_nav(current_page="pages/DataCleaning/2_INF_Handling.py")
 
-# Common header to select a CSV (optional)
-hdr = uih.common_header("♾️ INF Value Analysis & Handling", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
+hdr = uih.common_header("INF Value Analysis & Handling", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
 if hdr['input_paths'][0]:
     path = hdr['input_paths'][0]
     uih.st.session_state['current_file_path'] = path
@@ -20,7 +20,6 @@ if hdr['input_paths'][0]:
 
 lf = st.session_state.get('current_lazy_frame')
 file_path = st.session_state.get('current_file_path')
-
 if lf is None:
     st.info("Select a CSV using the header above.")
     st.stop()
@@ -73,3 +72,4 @@ with st.expander("Save dataset to disk (after INF handling)"):
         ok = write_lazyframe_to_csv(st.session_state['current_lazy_frame'], out_path)
         if ok:
             st.success(f"Saved to {out_path}")
+

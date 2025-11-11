@@ -1,6 +1,7 @@
+# Moved from root pages/18_Outlier_Detection.py
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header, get_lazy_data_reader
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav, common_header, get_lazy_data_reader
 from utils import (
     analyze_iqr_outliers,
     remove_outliers_lazy,
@@ -11,10 +12,9 @@ from utils import (
 st.set_page_config(page_title="Outlier Detection (IQR)", layout="wide")
 initialize_state()
 inject_global_styles()
-render_global_nav(active_page_hint="Data Processing")
+render_top_nav(current_page="pages/DataProcessing/18_Outlier_Detection.py")
 
-# Header for dataset selection
-hdr = common_header("📊 Outlier Detection & Handling (IQR)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="outlier_plots")
+hdr = common_header("Outlier Detection & Handling (IQR)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="outlier_plots")
 if hdr['input_paths'][0]:
     path = hdr['input_paths'][0]
     st.session_state['current_file_path'] = path
@@ -80,3 +80,4 @@ if bounds:
         st.session_state['current_lazy_frame'] = new_lf
         st.session_state['applied_filters'].append(f"Outlier handling mode={mode} cols={len(selected_cols)}")
         st.success("Outlier handling applied lazily. Save from a data export page to persist.")
+

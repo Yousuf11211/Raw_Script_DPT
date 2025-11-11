@@ -1,15 +1,16 @@
+# Moved from root pages/19_SHAP_Explanations.py
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav, common_header
 from utils import shap_explain_tree_model
 
 st.set_page_config(page_title="SHAP Explanations", layout="wide")
 initialize_state()
 inject_global_styles()
-render_global_nav(active_page_hint="Model Testing")
+render_top_nav(current_page="pages/ModelTesting/19_SHAP_Explanations.py")
 
 header = common_header(
-    "🧠 SHAP Explanations for Tree Models",
+    "SHAP Explanations for Tree Models",
     num_inputs=3,
     input_specs=[
         {"label": "Model path (.pkl/.joblib)", "kind": "file", "allowed_exts": [".pkl", ".joblib"]},
@@ -49,3 +50,4 @@ if st.button("Run SHAP", use_container_width=True):
             st.download_button("Download per-row SHAP summary CSV", per_row_df.to_csv(index=False), file_name="shap_per_row_summary.csv")
         except Exception as e:
             st.error(f"SHAP failed: {e}")
+

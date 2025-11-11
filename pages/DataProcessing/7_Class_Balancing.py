@@ -1,16 +1,16 @@
+# Moved from root pages/7_Class_Balancing.py
 import streamlit as st
 import polars as pl
-from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header, get_lazy_data_reader
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav, common_header, get_lazy_data_reader
 from utils.balancing import balance_dataframe, label_distribution
 from utils.io_utils import write_lazyframe_to_csv, default_output_path
 
 st.set_page_config(page_title="Class Balancing", layout="wide")
 initialize_state()
 inject_global_styles()
-render_global_nav(active_page_hint="Data Processing")
+render_top_nav(current_page="pages/DataProcessing/7_Class_Balancing.py")
 
-# Header for dataset selection
-hdr = common_header("⚖️ Class Balancing (SMOTE / BorderlineSMOTE / ADASYN)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
+hdr = common_header("Class Balancing (SMOTE / BorderlineSMOTE / ADASYN)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
 if hdr['input_paths'][0]:
     path = hdr['input_paths'][0]
     st.session_state['current_file_path'] = path
@@ -24,7 +24,6 @@ if lf is None:
     st.info("Select a CSV using the header above.")
     st.stop()
 
-# We need an eager pandas DataFrame for imbalanced-learn
 with st.spinner("Collecting data into memory for re-sampling (only do this on reasonably sized datasets)..."):
     df = lf.collect().to_pandas()
 
@@ -54,13 +53,12 @@ if st.button("Run Balancing", use_container_width=True):
         st.dataframe(dist, use_container_width=True)
         with st.expander("Preview Balanced Data (first 20 rows)"):
             st.dataframe(bdf.head(20), use_container_width=True)
-        # Save buttons for each method
         default_path = default_output_path(file_path, suffix=f"balanced_{name.lower()}")
         out_path = st.text_input(f"Output CSV path for {name}", value=default_path, key=f"out_{name}")
         if st.button(f"Save CSV ({name})"):
-            # Convert back to Polars LazyFrame for sink_csv if available
             pl_df = pl.from_pandas(bdf)
             lf_out = pl_df.lazy()
             ok = write_lazyframe_to_csv(lf_out, out_path)
             if ok:
                 st.success(f"Saved to {out_path}")
+

@@ -1,15 +1,15 @@
+# Moved from root pages/10_Delete_Columns_UI.py
 import streamlit as st
-from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header, get_lazy_data_reader
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav, common_header, get_lazy_data_reader
 from utils.data_quality import map_requested_columns, drop_columns_lazy
 from utils.io_utils import write_lazyframe_to_csv, default_output_path
 
 st.set_page_config(page_title="Delete Columns", layout="wide")
 initialize_state()
 inject_global_styles()
-render_global_nav(active_page_hint="Data Cleaning")
+render_top_nav(current_page="pages/DataCleaning/10_Delete_Columns_UI.py")
 
-# Header for dataset selection
-hdr = common_header("🗑️ Delete Columns (Dynamic)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
+hdr = common_header("Delete Columns (Dynamic)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
 if hdr['input_paths'][0]:
     path = hdr['input_paths'][0]
     st.session_state['current_file_path'] = path
@@ -23,7 +23,6 @@ if lf is None:
     st.info("Select a CSV using the header above.")
     st.stop()
 
-# Get current columns early for use in actions below
 all_columns = list(lf.columns)
 
 BASE_COLUMNS_TO_REMOVE = [
@@ -117,3 +116,4 @@ with st.expander("Save dataset to disk (after deletion)"):
         ok = write_lazyframe_to_csv(st.session_state['current_lazy_frame'], out_path)
         if ok:
             st.success(f"Saved to {out_path}")
+

@@ -1,3 +1,4 @@
+# Moved from root pages/20_Frontend_Test_Batch_Generator.py
 import streamlit as st
 import os
 import pandas as pd
@@ -7,13 +8,10 @@ from utils.frontend_test_generator import generate_testing_batches
 st.set_page_config(page_title="Frontend Test Batch Generator", layout="wide")
 initialize_state()
 inject_global_styles()
-# Render top navigation; pass current page path for active state
-render_top_nav(current_page="pages/20_Frontend_Test_Batch_Generator.py")
+render_top_nav(current_page="pages/Utilities/20_Frontend_Test_Batch_Generator.py")
 
-# Use common header: two input files (benign + attack) and output folder with save toggle
 header = common_header("Frontend Test Batch Generator", num_inputs=2, input_labels=["Benign CSV", "Attack CSV"], default_output_folder="frontend_testing")
 
-# Additional settings
 colA, colB, colC, colD = st.columns(4)
 with colA:
     benign_limit = st.number_input("Benign load limit", min_value=100, max_value=200000, value=5000, step=100)
@@ -37,13 +35,10 @@ if run_btn:
         st.error("Please select both benign and attack CSV files.")
     else:
         try:
-            # parse range
             low_high = [int(x.strip()) for x in rows_min_max.split(',') if x.strip()]
             if len(low_high) != 2:
                 raise ValueError("Rows range must be two integers, e.g. 50,100")
             min_rows, max_rows = low_high
-
-            # Load selected CSVs
             with st.spinner("Reading CSVs and preparing batches..."):
                 df_benign = pd.read_csv(benign_input_path)
                 df_attack = pd.read_csv(attack_input_path)
@@ -55,10 +50,8 @@ if run_btn:
                     df_attack['label'] = attack_label
                 else:
                     df_attack['label'] = attack_label
-                # Optional trimming of benign rows
                 if len(df_benign) > benign_limit:
                     df_benign = df_benign.sample(n=int(benign_limit), random_state=42)
-
                 meta = generate_testing_batches(
                     df_benign,
                     df_attack,
@@ -69,7 +62,6 @@ if run_btn:
                     max_rows=int(max_rows),
                     dry_run=not save_results
                 )
-
             if save_results:
                 st.success(f"Created {meta['batches_created']} batch file(s) in {output_folder}")
                 with st.expander("Output files"):
@@ -94,3 +86,4 @@ if run_btn:
                 st.dataframe(df_attack.head(), use_container_width=True)
         except Exception as e:
             st.error(f"Batch generation failed: {e}")
+

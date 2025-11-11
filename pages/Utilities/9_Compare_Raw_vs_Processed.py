@@ -1,15 +1,16 @@
+# Moved from root pages/9_Compare_Raw_vs_Processed.py
 import streamlit as st
 import os
-from utils.ui_helpers import initialize_state, inject_global_styles, render_global_nav, common_header
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav, common_header
 from utils.compare_datasets import get_reference_columns, compare_rows_between_folders
 
 st.set_page_config(page_title="Compare Raw vs Processed", layout="wide")
 initialize_state()
 inject_global_styles()
-render_global_nav(active_page_hint="Utilities")
+render_top_nav(current_page="pages/Utilities/9_Compare_Raw_vs_Processed.py")
 
 header = common_header(
-    "🔍 Compare Raw vs Processed CSV Folders",
+    "Compare Raw vs Processed CSV Folders",
     num_inputs=2,
     input_specs=[
         {"label": "Raw folder", "kind": "folder"},
@@ -89,3 +90,4 @@ if st.button("Compare Rows", use_container_width=True):
                         st.write("No samples to show.")
 
             st.caption(f"Mode: {result['mode']} | Hash: {result.get('hash_method','n/a')} | Sample limit: {int(sample_limit)}")
+
