@@ -6,36 +6,119 @@ import polars as pl
 EXCLUDE_DIRS = ['temp_uploads', 'venv', 'env', '.git', '__pycache__', '.idea/']
 SCAN_ROOT_DISPLAY = "PROJECT ROOT"
 
+
 # -----------------------------
 # Global UI helpers (navigation, state, metrics)
 # -----------------------------
 
 def inject_global_styles(hide_builtin_sidebar_nav: bool = True):
-    """Inject CSS for consistent theming. Hides Streamlit default page list if requested.
-    Updated to avoid emoji usage and style custom top navigation buttons.
+    """Inject CSS for consistent theming, including Soft Dark Mode and Navigation Alignment."""
+    css = """
+    <style>
+      /* --- Soft Dark Theme Variables and Base Styles --- */
+      :root {
+          --primary-bg: #1E2328; /* Dark Background */
+          --secondary-bg: #293038; /* Card/Container Background */
+          --text-color: #E6E6E6; /* Light gray text */
+          --soft-blue: #8AA8F3; /* Primary Accent (Soft Lavender Blue) */
+          --soft-blue-hover: #7A93D3;
+          --border-color: rgba(255, 255, 255, 0.1);
+      }
+      body {
+          background-color: var(--primary-bg);
+          color: var(--text-color);
+      }
+      h1, h2, h3, h4, h5, h6, label {
+          color: var(--text-color);
+      }
+      .block-container { padding-top: 3.5rem; }
+
+      /* Hide default multipage sidebar */
+      %HIDE_SIDEBAR%
+
+      /* Containers/Metrics/Cards */
+      .stApp > header { background-color: var(--secondary-bg); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); }
+      .stFrame, .stContainer, .stExpander, .stDataFrame, .stTextInput, .stAlert, .stMetric {
+          border-radius: 12px !important;
+          background-color: var(--secondary-bg);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2); 
+          border: 1px solid var(--border-color);
+      }
+
+      /* --- Navigation Alignment and Styling --- */
+      /* Top nav container (Category buttons) - ALIGNMENT FIX */
+      .top-nav { 
+          display:flex; 
+          flex-wrap:wrap; 
+          gap:0.75rem; /* Increased gap for better spacing */
+          margin:0.25rem 0 0.75rem 0; 
+          align-items: center; /* Vertically align items */
+      }
+
+      /* Main Category Nav Button */
+      .nav-btn { 
+          cursor:pointer; 
+          background:var(--secondary-bg); 
+          color:var(--text-color); 
+          padding:0.55rem 0.90rem; 
+          border-radius:6px; 
+          font-size:0.9rem; /* Slightly larger text */
+          border:1px solid var(--border-color); 
+          text-decoration:none; 
+          line-height:1.1; 
+          transition:background .15s, transform .15s, box-shadow .15s; 
+      }
+      .nav-btn:hover { 
+          background:var(--soft-blue-hover); 
+          color: white; 
+          transform:translateY(-2px); 
+          box-shadow:0 4px 8px rgba(0, 0, 0, 0.2);
+      }
+      .nav-btn.active { 
+          background:var(--soft-blue); 
+          color: #000000; /* Dark text on bright accent */
+          box-shadow:0 0 0 2px var(--soft-blue-hover); 
+          font-weight: bold;
+      }
+
+      /* Submenu Nav Container - ALIGNMENT FIX */
+      .submenu-row { 
+          display:flex; 
+          flex-wrap:wrap; 
+          gap:0.5rem; 
+          margin:0.25rem 0 0.75rem 0; 
+      }
+
+      /* Submenu Tool Button */
+      .submenu-btn { 
+          cursor:pointer; 
+          background:var(--secondary-bg); 
+          color:var(--text-color); 
+          padding:0.45rem 0.75rem; 
+          border-radius:5px; 
+          font-size:0.8rem; 
+          border:1px solid var(--border-color); 
+          transition:background .15s, transform .15s; 
+          line-height:1.1;
+      }
+      .submenu-btn:hover { 
+          background:var(--soft-blue-hover); 
+          color: white;
+          transform:translateY(-1px); 
+      }
+      .submenu-btn.active { 
+          background:var(--soft-blue); 
+          color: #000000;
+          box-shadow:0 0 0 2px var(--soft-blue-hover); 
+      }
+    </style>
     """
-    css = [
-        """
-        <style>
-          .block-container { padding-top: 3.5rem; }
-          /* Hide default multipage sidebar */
-          %HIDE_SIDEBAR%
-          /* Top nav container */
-          .top-nav { display:flex; flex-wrap:wrap; gap:0.5rem; margin:0.25rem 0 0.75rem 0; }
-          .nav-btn { cursor:pointer; background:#1f2937; color:#f1f5f9; padding:0.55rem 0.90rem; border-radius:6px; font-size:0.85rem; border:1px solid #374151; text-decoration:none; line-height:1.1; transition:background .15s, transform .15s, box-shadow .15s; }
-          .nav-btn:hover { background:#2563eb; transform:translateY(-2px); }
-          .nav-btn.active { background:#2563eb; box-shadow:0 0 0 2px #1e3a8a; }
-          .submenu-row { display:flex; flex-wrap:wrap; gap:0.5rem; margin:0.25rem 0 0.75rem 0; }
-          .submenu-btn { cursor:pointer; background:#111827; color:#e5e7eb; padding:0.45rem 0.75rem; border-radius:5px; font-size:0.75rem; border:1px solid #334155; transition:background .15s, transform .15s; }
-          .submenu-btn:hover { background:#1e3a8a; transform:translateY(-2px); }
-          .submenu-btn.active { background:#2563eb; box-shadow:0 0 0 2px #1e3a8a; }
-        </style>
-        """
-    ]
     hide_css = 'section[data-testid="stSidebarNav"] { display:none !important; }' if hide_builtin_sidebar_nav else ''
-    st.markdown(css[0].replace('%HIDE_SIDEBAR%', hide_css), unsafe_allow_html=True)
+    st.markdown(css.replace('%HIDE_SIDEBAR%', hide_css), unsafe_allow_html=True)
+
 
 # Flattened menu to root-level pages only
+# ... (GLOBAL_MENU remains unchanged) ...
 GLOBAL_MENU = {
     "Data Cleaning": [
         ("Data Validation & Dedup", "pages/1_Data_Validation_and_Dedup.py"),
@@ -97,38 +180,61 @@ def render_top_nav(current_page: str | None = None, show_submenu: bool = True):
 
     active_cat = st.session_state['nav_active_category']
 
-    # Category buttons
-    cat_names = list(GLOBAL_MENU.keys())
-    cat_cols = st.columns(len(cat_names)) if cat_names else []
-    for i, cat in enumerate(cat_names):
-        with cat_cols[i]:
-            btn_type = 'primary' if cat == active_cat else 'secondary'
-            if st.button(cat, key=f'cat_btn_{cat}', type=btn_type, help=f'Show {cat} tools'):
-                st.session_state['nav_active_category'] = cat
-                st.rerun()
+    # --- CATEGORY BUTTONS (Main Nav) ---
+    # Remain in the flexible CSS layout
+    st.markdown('<div class="top-nav">', unsafe_allow_html=True)
+    for cat in GLOBAL_MENU.keys():
+        is_active = (cat == active_cat)
+        # Using a container and HTML class for styling (assuming the CSS still uses .nav-btn)
+        # We need to manually add the active class to the button container using a wrapper for perfect visual sync
+        active_class = 'active' if is_active else ''
+        button_html = f'<div class="nav-btn-wrapper {active_class}">'
 
-    # Metrics
+        # Since st.button cannot be styled with class, we use st.markdown/HTML structure
+        # NOTE: For Streamlit buttons to work inside the loop, it's safer to let Streamlit manage the loop and wrap the output.
+        # However, for pure alignment, we'll revert to the Python approach while keeping the CSS styles.
+
+        if st.button(cat, key=f'cat_btn_{cat}', help=f'Show {cat} tools'):
+            st.session_state['nav_active_category'] = cat
+            st.rerun()
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # --- Metrics ---
     m = get_resource_metrics()
     mc1, mc2, mc3 = st.columns(3)
     mc1.metric("CPU %", f"{m['CPU %']:.1f}%")
     mc2.metric("RAM %", f"{m['RAM %']:.1f}%")
     mc3.metric("RAM Used", f"{m['RAM Used (GB)']:.2f} GB")
 
-    # Submenu
+    # --- SUBMENU (Tool Buttons) ---
     if show_submenu:
         items = GLOBAL_MENU.get(active_cat, [])
         if items:
             st.markdown(f"#### {active_cat} Tools")
-            per_row = 4
-            rows = [items[i:i+per_row] for i in range(0, len(items), per_row)]
+
+            # --- FIX: FORCING A 3-COLUMN GRID ---
+            COLUMNS_PER_ROW = 3
+
+            # Divide the list of items into rows
+            rows = [items[i:i + COLUMNS_PER_ROW] for i in range(0, len(items), COLUMNS_PER_ROW)]
+
             for row in rows:
-                cols = st.columns(len(row))
+                # Create exactly 3 columns for this row
+                cols = st.columns(COLUMNS_PER_ROW)
+
                 for j, (label, path) in enumerate(row):
                     with cols[j]:
                         is_active_tool = (current_page == path)
-                        if st.button(label, key=f'sub_btn_{path}', help=path, type=('primary' if is_active_tool else 'secondary')):
+
+                        # Set button type for visual style using Streamlit's types
+                        btn_type = 'primary' if is_active_tool else 'secondary'
+
+                        if st.button(label, key=f'sub_btn_{path}', help=path, type=btn_type, use_container_width=True):
                             if not is_active_tool:
                                 safe_switch_page(path)
+            # --- END FIXED GRID ---
+
         else:
             st.info("No tools registered for this category.")
 
@@ -164,6 +270,7 @@ def get_resource_metrics():
         "RAM %": memory_info.percent,
     }
 
+
 @st.cache_resource
 def get_lazy_data_reader(file_path: str):
     try:
@@ -171,6 +278,7 @@ def get_lazy_data_reader(file_path: str):
     except Exception as e:
         st.error(f"Error reading data lazily from path: {file_path}. Details: {e}")
         return None
+
 
 @st.cache_data
 def save_uploaded_file_to_temp(uploaded_file):
@@ -181,6 +289,7 @@ def save_uploaded_file_to_temp(uploaded_file):
         f.write(uploaded_file.getbuffer())
     return temp_path
 
+
 # -----------------------------
 # File / folder browser helpers
 # -----------------------------
@@ -189,7 +298,8 @@ def data_source_selector(label: str = "Select your data source:"):
     SCAN_ROOT = os.getcwd()
     st.subheader("Data Source")
     st.caption("Browse and pick a CSV from the project directory")
-    chosen = _browse_path(SCAN_ROOT, state_prefix="home_browser", label=label, allowed_exts=['.csv'], allow_select_current_dir=False)
+    chosen = _browse_path(SCAN_ROOT, state_prefix="home_browser", label=label, allowed_exts=['.csv'],
+                          allow_select_current_dir=False)
     if chosen:
         st.session_state['current_file_path'] = chosen
         lf = get_lazy_data_reader(str(chosen))
@@ -199,7 +309,8 @@ def data_source_selector(label: str = "Select your data source:"):
     return None
 
 
-def _browse_path(root_dir: str, state_prefix: str, label: str, allowed_exts=None, allow_select_current_dir: bool = False):
+def _browse_path(root_dir: str, state_prefix: str, label: str, allowed_exts=None,
+                 allow_select_current_dir: bool = False):
     if f'{state_prefix}_current_path' not in st.session_state:
         st.session_state[f'{state_prefix}_current_path'] = root_dir
     current_dir = st.session_state[f'{state_prefix}_current_path']
@@ -249,10 +360,11 @@ def _browse_path(root_dir: str, state_prefix: str, label: str, allowed_exts=None
     return chosen
 
 
-def common_header(page_title: str, num_inputs: int = 1, input_labels=None, default_output_folder: str = "output", input_specs=None):
+def common_header(page_title: str, num_inputs: int = 1, input_labels=None, default_output_folder: str = "output",
+                  input_specs=None):
     root_dir = os.getcwd()
     if input_labels is None and input_specs is None:
-        input_labels = [f"Input File {i+1}" for i in range(num_inputs)]
+        input_labels = [f"Input File {i + 1}" for i in range(num_inputs)]
     st.title(page_title)
     st.markdown("#### Data Inputs & Output Settings")
     cols = st.columns(num_inputs + 1)
@@ -261,18 +373,22 @@ def common_header(page_title: str, num_inputs: int = 1, input_labels=None, defau
         with cols[i]:
             if input_specs and i < len(input_specs):
                 spec = input_specs[i]
-                label = spec.get('label', f"Input {i+1}")
+                label = spec.get('label', f"Input {i + 1}")
                 kind = spec.get('kind', 'file')
                 allowed_exts = spec.get('allowed_exts', ['.csv']) if kind == 'file' else None
                 allow_dir = (kind == 'folder')
-                chosen = _browse_path(root_dir, state_prefix=f"{page_title}_input_{i}", label=label, allowed_exts=allowed_exts, allow_select_current_dir=allow_dir)
+                chosen = _browse_path(root_dir, state_prefix=f"{page_title}_input_{i}", label=label,
+                                      allowed_exts=allowed_exts, allow_select_current_dir=allow_dir)
             else:
                 label = input_labels[i]
-                chosen = _browse_path(root_dir, state_prefix=f"{page_title}_input_{i}", label=label, allowed_exts=['.csv'], allow_select_current_dir=False)
+                chosen = _browse_path(root_dir, state_prefix=f"{page_title}_input_{i}", label=label,
+                                      allowed_exts=['.csv'], allow_select_current_dir=False)
             selected_paths.append(chosen)
     with cols[-1]:
-        output_folder = st.text_input("Output folder", value=default_output_folder, key=f"common_header_out_{page_title}")
-        save_results = st.checkbox("Save results", value=True, help="Uncheck to run without writing output files.", key=f"common_header_save_{page_title}")
+        output_folder = st.text_input("Output folder", value=default_output_folder,
+                                      key=f"common_header_out_{page_title}")
+        save_results = st.checkbox("Save results", value=True, help="Uncheck to run without writing output files.",
+                                   key=f"common_header_save_{page_title}")
     st.divider()
     return {
         'input_paths': selected_paths,
