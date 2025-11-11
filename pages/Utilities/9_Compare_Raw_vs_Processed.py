@@ -7,7 +7,7 @@ from utils.compare_datasets import get_reference_columns, compare_rows_between_f
 st.set_page_config(page_title="Compare Raw vs Processed", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="pages/Utilities/9_Compare_Raw_vs_Processed.py")
+render_top_nav(current_page="Utilities/9_Compare_Raw_vs_Processed")
 
 header = common_header(
     "Compare Raw vs Processed CSV Folders",
@@ -90,4 +90,3 @@ if st.button("Compare Rows", use_container_width=True):
                         st.write("No samples to show.")
 
             st.caption(f"Mode: {result['mode']} | Hash: {result.get('hash_method','n/a')} | Sample limit: {int(sample_limit)}")
-

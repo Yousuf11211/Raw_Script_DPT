@@ -13,7 +13,7 @@ from utils.feature_importance import (
 st.set_page_config(page_title="Feature Importance", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="pages/DataAnalysis/11_Feature_Importance.py")
+render_top_nav(current_page="DataAnalysis/11_Feature_Importance")
 
 hdr = common_header("Feature Importance (RandomForest vs XGBoost)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
 if hdr['input_paths'][0]:
@@ -109,4 +109,3 @@ if st.button("Run Importance", use_container_width=True):
                 st.info("Per-label analysis skipped (XGBoost unavailable).")
     except Exception as e:
         st.error(f"Failed to compute importance: {e}")
-

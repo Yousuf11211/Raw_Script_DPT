@@ -13,7 +13,7 @@ from utils import (
 st.set_page_config(page_title="Separate and Save Benign/Attack Sets", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="pages/DataProcessing/12_Separate_and_Save_Sets.py")
+render_top_nav(current_page="DataProcessing/12_Separate_and_Save_Sets")
 
 hdr = common_header(
     "Separate and Save Benign/Attack Sets",
@@ -120,4 +120,3 @@ if state:
                         st.write(p)
         else:
             st.info("No attack labels found in analysis.")
-

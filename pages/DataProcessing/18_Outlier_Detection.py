@@ -12,7 +12,7 @@ from utils import (
 st.set_page_config(page_title="Outlier Detection (IQR)", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="pages/DataProcessing/18_Outlier_Detection.py")
+render_top_nav(current_page="DataProcessing/18_Outlier_Detection")
 
 hdr = common_header("Outlier Detection & Handling (IQR)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="outlier_plots")
 if hdr['input_paths'][0]:
@@ -80,4 +80,3 @@ if bounds:
         st.session_state['current_lazy_frame'] = new_lf
         st.session_state['applied_filters'].append(f"Outlier handling mode={mode} cols={len(selected_cols)}")
         st.success("Outlier handling applied lazily. Save from a data export page to persist.")
-

@@ -9,7 +9,7 @@ from utils import train_xgb_on_csv, test_sklearn_model_on_csv
 st.set_page_config(page_title="Attack Model (Train & Test)", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="pages/ModelTraining/15_Attack_Model_Train_Test.py")
+render_top_nav(current_page="ModelTraining/15_Attack_Model_Train_Test")
 
 train_header = common_header(
     "Attack Classification Model — Train",
@@ -118,4 +118,3 @@ if st.button("Run Test", use_container_width=True):
             df_full['predicted_label'] = res['predicted_labels']
             df_full.to_csv(os.path.join(output_folder, f"{base_name}_predictions.csv"), index=False)
             st.info(f"Saved full predictions CSV -> {os.path.join(output_folder, f'{base_name}_predictions.csv')}")
-

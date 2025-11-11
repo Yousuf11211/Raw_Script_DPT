@@ -7,7 +7,7 @@ from utils.io_utils import write_lazyframe_to_csv, default_output_path
 st.set_page_config(page_title="Delete Columns", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="pages/DataCleaning/10_Delete_Columns_UI.py")
+render_top_nav(current_page="DataCleaning/10_Delete_Columns_UI")
 
 hdr = common_header("Delete Columns (Dynamic)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
 if hdr['input_paths'][0]:
@@ -116,4 +116,3 @@ with st.expander("Save dataset to disk (after deletion)"):
         ok = write_lazyframe_to_csv(st.session_state['current_lazy_frame'], out_path)
         if ok:
             st.success(f"Saved to {out_path}")
-

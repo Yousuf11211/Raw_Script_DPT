@@ -14,7 +14,7 @@ from utils.io_utils import write_lazyframe_to_csv, default_output_path
 st.set_page_config(page_title="Data Validation & Dedup", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="pages/DataCleaning/1_Data_Validation_and_Dedup.py")
+render_top_nav(current_page="DataCleaning/1_Data_Validation_and_Dedup")
 
 hdr = common_header("Data Validation & Deduplication", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
 if hdr['input_paths'][0]:
@@ -111,4 +111,3 @@ with st.expander("Save dataset to disk (after row dedup)"):
         ok = write_lazyframe_to_csv(lf, out_path)
         if ok:
             st.success(f"Saved to {out_path}")
-

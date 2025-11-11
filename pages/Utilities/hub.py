@@ -1,14 +1,10 @@
 import streamlit as st
-from utils.ui_helpers import inject_global_styles, initialize_state, render_top_nav, render_category_hub
+from utils.ui_helpers import initialize_state, inject_global_styles, render_top_nav
 
-st.set_page_config(page_title="Utilities Hub", layout="wide")
+st.set_page_config(page_title="Utilities", layout="wide", initial_sidebar_state="collapsed")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="pages/Utilities/hub.py")
+render_top_nav(current_page="Utilities/hub")
 
-render_category_hub(
-    category="Utilities",
-    heading="Utility Tools",
-    description="Folder comparison and frontend test batch generation utilities."
-)
-
+st.title("Utilities")
+st.caption("Select a tool below.")

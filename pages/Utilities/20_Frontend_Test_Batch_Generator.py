@@ -8,7 +8,7 @@ from utils.frontend_test_generator import generate_testing_batches
 st.set_page_config(page_title="Frontend Test Batch Generator", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="pages/Utilities/20_Frontend_Test_Batch_Generator.py")
+render_top_nav(current_page="Utilities/20_Frontend_Test_Batch_Generator")
 
 header = common_header("Frontend Test Batch Generator", num_inputs=2, input_labels=["Benign CSV", "Attack CSV"], default_output_folder="frontend_testing")
 
@@ -86,4 +86,3 @@ if run_btn:
                 st.dataframe(df_attack.head(), use_container_width=True)
         except Exception as e:
             st.error(f"Batch generation failed: {e}")
-

@@ -21,7 +21,7 @@ from utils import (
 st.set_page_config(page_title="Hyperparameter Tuning", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="pages/ModelTraining/13_Hyperparameter_Tuning.py")
+render_top_nav(current_page="ModelTraining/13_Hyperparameter_Tuning")
 
 header = common_header(
     "Hyperparameter Tuning (RandomForest & XGBoost)",
@@ -200,4 +200,3 @@ if show_xgb_heat and st.session_state.get('tuning_xgb'):
 
 st.markdown("---")
 st.caption("If XGBoost missing, install with: pip install xgboost")
-

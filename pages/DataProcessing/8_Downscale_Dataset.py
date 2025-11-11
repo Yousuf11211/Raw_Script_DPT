@@ -13,7 +13,7 @@ from utils.downscale import (
 st.set_page_config(page_title="Downscale Dataset", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="pages/DataProcessing/8_Downscale_Dataset.py")
+render_top_nav(current_page="DataProcessing/8_Downscale_Dataset")
 
 hdr = common_header(
     "Downscale Dataset (Create Small Benign/Attack Sets)",
@@ -121,4 +121,3 @@ if st.button("Run Downscale", use_container_width=True):
                     st.download_button("Download attacks.csv", f, file_name=os.path.basename(attacks_path))
             with st.expander("Per-file summary"):
                 st.json(result.get('per_file', []))
-

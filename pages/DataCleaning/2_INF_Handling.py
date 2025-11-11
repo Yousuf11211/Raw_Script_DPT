@@ -8,7 +8,7 @@ from utils.io_utils import write_lazyframe_to_csv, default_output_path
 st.set_page_config(page_title="INF Handling", layout="wide")
 uih.initialize_state()
 uih.inject_global_styles()
-uih.render_top_nav(current_page="pages/DataCleaning/2_INF_Handling.py")
+uih.render_top_nav(current_page="DataCleaning/2_INF_Handling")
 
 hdr = uih.common_header("INF Value Analysis & Handling", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
 if hdr['input_paths'][0]:
@@ -72,4 +72,3 @@ with st.expander("Save dataset to disk (after INF handling)"):
         ok = write_lazyframe_to_csv(st.session_state['current_lazy_frame'], out_path)
         if ok:
             st.success(f"Saved to {out_path}")
-

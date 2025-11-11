@@ -8,7 +8,7 @@ from utils import train_isolation_forest_on_csv
 st.set_page_config(page_title="Isolation Forest (Benign Only)", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="pages/ModelTraining/14_Isolation_Forest.py")
+render_top_nav(current_page="ModelTraining/14_Isolation_Forest")
 
 hdr = common_header(
     "Isolation Forest — Benign Data Model",
@@ -70,4 +70,3 @@ if st.button("Train Isolation Forest", use_container_width=True):
         joblib.dump(model, out_model)
         st.success(f"Model saved to {out_model}")
         st.json(stats)
-

@@ -7,7 +7,7 @@ from utils import shap_explain_tree_model
 st.set_page_config(page_title="SHAP Explanations", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="pages/ModelTesting/19_SHAP_Explanations.py")
+render_top_nav(current_page="ModelTesting/19_SHAP_Explanations")
 
 header = common_header(
     "SHAP Explanations for Tree Models",
@@ -50,4 +50,3 @@ if st.button("Run SHAP", use_container_width=True):
             st.download_button("Download per-row SHAP summary CSV", per_row_df.to_csv(index=False), file_name="shap_per_row_summary.csv")
         except Exception as e:
             st.error(f"SHAP failed: {e}")
-
