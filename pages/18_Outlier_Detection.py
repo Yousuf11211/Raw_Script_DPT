@@ -12,7 +12,7 @@ from utils import (
 st.set_page_config(page_title="Outlier Detection (IQR)", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="DataProcessing/18_Outlier_Detection")
+render_top_nav(current_page="pages/18_Outlier_Detection.py")
 
 hdr = common_header("Outlier Detection & Handling (IQR)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="outlier_plots")
 if hdr['input_paths'][0]:

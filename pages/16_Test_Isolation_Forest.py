@@ -7,7 +7,7 @@ from utils import test_isolation_forest_on_csv
 st.set_page_config(page_title="Test Isolation Forest (Benign)", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="ModelTesting/16_Test_Isolation_Forest")
+render_top_nav(current_page="pages/16_Test_Isolation_Forest.py")
 
 header = common_header(
     "Test Isolation Forest — Benign vs Anomaly",

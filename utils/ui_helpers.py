@@ -35,7 +35,7 @@ def inject_global_styles(hide_builtin_sidebar_nav: bool = True):
     hide_css = 'section[data-testid="stSidebarNav"] { display:none !important; }' if hide_builtin_sidebar_nav else ''
     st.markdown(css[0].replace('%HIDE_SIDEBAR%', hide_css), unsafe_allow_html=True)
 
-# Flattened menu: top-level pages/ files only
+# Flattened menu to root-level pages only
 GLOBAL_MENU = {
     "Data Cleaning": [
         ("Data Validation & Dedup", "pages/1_Data_Validation_and_Dedup.py"),
@@ -68,7 +68,7 @@ GLOBAL_MENU = {
     "Utilities": [
         ("Compare Raw vs Processed", "pages/9_Compare_Raw_vs_Processed.py"),
         ("Frontend Test Batch Generator", "pages/20_Frontend_Test_Batch_Generator.py"),
-    ],
+    ]
 }
 
 PATH_TO_CATEGORY = {path: cat for cat, items in GLOBAL_MENU.items() for _label, path in items}

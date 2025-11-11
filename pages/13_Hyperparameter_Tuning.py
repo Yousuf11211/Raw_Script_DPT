@@ -21,7 +21,7 @@ from utils import (
 st.set_page_config(page_title="Hyperparameter Tuning", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="ModelTraining/13_Hyperparameter_Tuning")
+render_top_nav(current_page="pages/13_Hyperparameter_Tuning.py")
 
 header = common_header(
     "Hyperparameter Tuning (RandomForest & XGBoost)",

@@ -7,7 +7,7 @@ from utils.compare_datasets import get_reference_columns, compare_rows_between_f
 st.set_page_config(page_title="Compare Raw vs Processed", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="Utilities/9_Compare_Raw_vs_Processed")
+render_top_nav(current_page="pages/9_Compare_Raw_vs_Processed.py")
 
 header = common_header(
     "Compare Raw vs Processed CSV Folders",

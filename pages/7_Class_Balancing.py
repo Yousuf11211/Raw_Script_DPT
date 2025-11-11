@@ -8,7 +8,7 @@ from utils.io_utils import write_lazyframe_to_csv, default_output_path
 st.set_page_config(page_title="Class Balancing", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="DataProcessing/7_Class_Balancing")
+render_top_nav(current_page="pages/7_Class_Balancing.py")
 
 hdr = common_header("Class Balancing (SMOTE / BorderlineSMOTE / ADASYN)", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
 if hdr['input_paths'][0]:

@@ -4,7 +4,7 @@ from utils.ui_helpers import initialize_state, inject_global_styles, render_top_
 st.set_page_config(page_title="Thesis Data Tool", layout="wide", initial_sidebar_state="collapsed")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="0_Landing")
+render_top_nav(current_page="pages/0_Landing.py")
 
 st.title("Thesis Data Processing & Modeling Workbench")
 st.caption("Developer: Syed Yousuf Uddin")

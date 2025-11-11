@@ -8,7 +8,7 @@ from utils import train_isolation_forest_on_csv
 st.set_page_config(page_title="Isolation Forest (Benign Only)", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="ModelTraining/14_Isolation_Forest")
+render_top_nav(current_page="pages/14_Isolation_Forest.py")
 
 hdr = common_header(
     "Isolation Forest — Benign Data Model",

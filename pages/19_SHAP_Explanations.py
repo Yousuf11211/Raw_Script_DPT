@@ -7,7 +7,7 @@ from utils import shap_explain_tree_model
 st.set_page_config(page_title="SHAP Explanations", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="ModelTesting/19_SHAP_Explanations")
+render_top_nav(current_page="pages/19_SHAP_Explanations.py")
 
 header = common_header(
     "SHAP Explanations for Tree Models",

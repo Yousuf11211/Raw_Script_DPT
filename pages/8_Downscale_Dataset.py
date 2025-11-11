@@ -13,7 +13,7 @@ from utils.downscale import (
 st.set_page_config(page_title="Downscale Dataset", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="DataProcessing/8_Downscale_Dataset")
+render_top_nav(current_page="pages/8_Downscale_Dataset.py")
 
 hdr = common_header(
     "Downscale Dataset (Create Small Benign/Attack Sets)",

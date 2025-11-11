@@ -8,7 +8,7 @@ from utils.io_utils import write_lazyframe_to_csv, default_output_path
 st.set_page_config(page_title="Encoding Candidates", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="DataCleaning/6_Encoding_Candidates")
+render_top_nav(current_page="pages/6_Encoding_Candidates.py")
 
 hdr = common_header("Encoding Candidates Analysis", num_inputs=1, input_specs=[{"label": "Input CSV", "kind": "file", "allowed_exts": [".csv"]}], default_output_folder="")
 if hdr['input_paths'][0]:

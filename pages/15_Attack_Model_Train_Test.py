@@ -9,7 +9,7 @@ from utils import train_xgb_on_csv, test_sklearn_model_on_csv
 st.set_page_config(page_title="Attack Model (Train & Test)", layout="wide")
 initialize_state()
 inject_global_styles()
-render_top_nav(current_page="ModelTraining/15_Attack_Model_Train_Test")
+render_top_nav(current_page="pages/15_Attack_Model_Train_Test.py")
 
 train_header = common_header(
     "Attack Classification Model — Train",
