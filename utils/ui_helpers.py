@@ -27,6 +27,8 @@ def inject_global_styles(hide_builtin_sidebar_nav: bool = True):
           --soft-green: #A3D9A5; /* Success Green */
           --soft-yellow: #F7E59D; /* Warning Gold */
           --soft-info: #C8D7E3; /* Info Blue-Gray */
+          --active-red: #FF4B4B; /* Active highlight red */
+          --active-red-hover: #E04343; /* Darker red for hover */
       }
       body {
           background-color: var(--primary-bg);
@@ -78,19 +80,23 @@ def inject_global_styles(hide_builtin_sidebar_nav: bool = True):
           transform: translateY(-1px);
       }
 
-      /* Primary buttons (Run Validation, Apply Drop) */
-      .stButton [data-testid="baseButton-secondary"] {
-          background-color: var(--soft-blue);
-          color: #000000 !important; /* Darker text for contrast on soft blue */
-      }
-      .stButton [data-testid="baseButton-secondary"]:hover {
-          background-color: #7A93D3;
+      /* Base style for secondary buttons (inactive) to be dark */
+      .stButton [data-testid="baseButton-secondary"] button {
+          background-color: var(--secondary-bg) !important;
+          color: var(--text-color) !important;
+          border: 1px solid var(--border-color) !important;
       }
 
-      /* --- Navigation Alignment and Styling (re-purposed for st.columns) --- */
-      /* Note: Since we are using st.columns in render_top_nav, we rely on Streamlit for grid layout. 
-         These original nav styles are mostly overridden by the new design, but we keep the structure 
-         if they target other elements. */
+      /* Active/Primary buttons (Used for the currently active submenu button) */
+      .stButton [data-testid="baseButton-primary"] button {
+          background-color: var(--active-red) !important; 
+          color: #FFFFFF !important; /* Ensure readable text on red */
+      }
+
+      /* Ensure hover works on the primary button */
+      .stButton [data-testid="baseButton-primary"] button:hover {
+          background-color: var(--active-red-hover) !important;
+      }
 
       /* 4. Soft Alerts */
       [data-testid="stAlert"] {
@@ -108,27 +114,24 @@ def inject_global_styles(hide_builtin_sidebar_nav: bool = True):
           background-color: var(--secondary-bg);
       }
 
-      /* 6. ALIGNMENT FIX (Kept from previous iteration, may not be needed with st.columns) */
-      /* This targets the column structure where the buttons are placed */
+      /* 6. ALIGNMENT FIX (Used for button groups in pages) */
       div.stVerticalBlock > div.stVerticalBlock {
-          /* Apply a grid or flexbox to the container holding the button blocks */
           display: flex;
-          flex-direction: row; /* Layout children horizontally */
-          align-items: stretch; /* Make all columns the same height */
-          gap: 15px; /* Spacing between columns */
+          flex-direction: row; 
+          align-items: stretch; 
+          gap: 15px; 
       }
-      /* Ensure the button containers within the flexbox take up equal space */
       div.stVerticalBlock > div.stVerticalBlock > div.stBlock {
-          flex: 1 1 0%; /* Flex magic: grow, shrink, and basis 0 */
-          min-width: 150px; /* Ensure a minimum size */
+          flex: 1 1 0%; 
+          min-width: 150px; 
       }
     </style>
     """
     # --- END CSS INJECTION ---
 
+    # Ensure st.markdown and hide_css are available
     hide_css = 'section[data-testid="stSidebarNav"] { display:none !important; }' if hide_builtin_sidebar_nav else ''
     st.markdown(css.replace('%HIDE_SIDEBAR%', hide_css), unsafe_allow_html=True)
-
 
 # Flattened menu to root-level pages only
 # ... (GLOBAL_MENU remains unchanged) ...
@@ -169,6 +172,34 @@ GLOBAL_MENU = {
 
 PATH_TO_CATEGORY = {path: cat for cat, items in GLOBAL_MENU.items() for _label, path in items}
 
+# Build quick lookups for normalization
+_BASE_TO_PATH = {os.path.splitext(os.path.basename(p))[0].lower(): p for p in PATH_TO_CATEGORY.keys()}
+_LABEL_TO_PATH = {label.lower(): p for cat, items in GLOBAL_MENU.items() for (label, p) in items}
+
+
+def _canonicalize_page_hint(page_hint: str | None) -> str | None:
+    """Return the canonical menu path for a given page hint.
+    Accepts exact menu path, base filename (with/without extension), or label.
+    """
+    if not page_hint:
+        return None
+    # Exact path match
+    if page_hint in PATH_TO_CATEGORY:
+        return page_hint
+    # Normalize by base name (strip directories and extension)
+    base = os.path.splitext(os.path.basename(page_hint))[0].lower()
+    if base in _BASE_TO_PATH:
+        return _BASE_TO_PATH[base]
+    # Try label match
+    low_hint = page_hint.lower()
+    if low_hint in _LABEL_TO_PATH:
+        return _LABEL_TO_PATH[low_hint]
+    # Try to match end-with label for hints like "Category/Label"
+    for label, p in _LABEL_TO_PATH.items():
+        if low_hint.endswith(label):
+            return p
+    return None
+
 
 def safe_switch_page(target: str):
     """Try to navigate to a target page. Falls back to displaying a link if switch_page fails."""
@@ -185,7 +216,14 @@ def safe_switch_page(target: str):
 
 def render_top_nav(current_page: str | None = None, show_submenu: bool = True):
     """Render top navigation with main category buttons (in a single row) and submenu (3-column grid)."""
-    inferred_cat = PATH_TO_CATEGORY.get(current_page)
+
+    # NOTE: Assuming st, st.session_state, PATH_TO_CATEGORY, GLOBAL_MENU,
+    # get_resource_metrics, and safe_switch_page are available in the scope.
+
+    # Canonicalize page hint to align with GLOBAL_MENU
+    canonical_current = _canonicalize_page_hint(current_page)
+
+    inferred_cat = PATH_TO_CATEGORY.get(canonical_current)
     if 'nav_active_category' not in st.session_state:
         st.session_state['nav_active_category'] = inferred_cat or list(GLOBAL_MENU.keys())[0]
     if inferred_cat and inferred_cat != st.session_state['nav_active_category']:
@@ -200,7 +238,6 @@ def render_top_nav(current_page: str | None = None, show_submenu: bool = True):
     cat_names = list(GLOBAL_MENU.keys())
 
     # Create columns dynamically, one for each category button
-    # The columns will align the buttons horizontally in one row.
     cat_cols = st.columns(len(cat_names))
 
     for i, cat in enumerate(cat_names):
@@ -210,8 +247,23 @@ def render_top_nav(current_page: str | None = None, show_submenu: bool = True):
 
             # Button takes up the width of its column
             if st.button(cat, key=f'cat_btn_{cat}', type=btn_type, help=f'Show {cat} tools', use_container_width=True):
-                st.session_state['nav_active_category'] = cat
-                st.rerun()
+
+                # --- FIX FOR CATEGORY SWITCHING ---
+                if cat != active_cat:
+                    # 1. Update the state to the new category
+                    st.session_state['nav_active_category'] = cat
+
+                    # 2. Get the path of the first tool in the new category
+                    #    We assume every category in GLOBAL_MENU has at least one tool.
+                    first_tool_path = GLOBAL_MENU[cat][0][1]
+
+                    # 3. Switch the page immediately instead of using st.rerun()
+                    #    This prevents the current page's initial run from overriding the state.
+                    safe_switch_page(first_tool_path)
+                else:
+                    # If they click the active category, rerun to refresh state/UI if needed
+                    st.rerun()
+                # --- END FIX ---
 
     st.divider()
 
@@ -238,12 +290,11 @@ def render_top_nav(current_page: str | None = None, show_submenu: bool = True):
 
             for row in rows:
                 # Create columns for this row
-                # We use len(row) here in case the last row has fewer than 3 items
                 cols = st.columns(len(row))
 
                 for j, (label, path) in enumerate(row):
                     with cols[j]:
-                        is_active_tool = (current_page == path)
+                        is_active_tool = (canonical_current == path)
                         btn_type = 'primary' if is_active_tool else 'secondary'
 
                         # Buttons inside st.columns will align in a row
@@ -253,7 +304,6 @@ def render_top_nav(current_page: str | None = None, show_submenu: bool = True):
 
         else:
             st.info("No tools registered for this category.")
-
 
 def render_global_nav(active_page_hint: str | None = None, show_metrics: bool = True):
     """Legacy sidebar nav (kept for fallback, hidden by CSS)."""
@@ -411,3 +461,4 @@ def common_header(page_title: str, num_inputs: int = 1, input_labels=None, defau
         'output_folder': output_folder,
         'save': save_results,
     }
+
