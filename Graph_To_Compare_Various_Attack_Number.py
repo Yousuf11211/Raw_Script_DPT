@@ -1,24 +1,131 @@
+# What changed:
+# - Added GPU detection/device prompt and chunk size prompt with row estimation.
+# - Standardized outputs under ./outputs/Graph_To_Compare_Various_Attack_Number.
+# - Added final summary with output paths.
+#
+# Purpose:
+# - Count label distribution across CSV files in a folder.
+# - Save a summary CSV and bar chart.
+# - Stream-process large files in chunks.
+
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
 
 # Parent folder containing all CSVs
-parent_folder = "Raw_Data_2017"
+PARENT_FOLDER = "Raw_Data_2017"
 
-# Collect global label counts
-overall_counts = {}
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
+OUTPUT_FOLDER = os.path.join(OUTPUT_ROOT, "Graph_To_Compare_Various_Attack_Number")
 
-# Walk through all CSV files
-for root, dirs, files in os.walk(parent_folder):
-    for file in files:
-        if not file.endswith(".csv"):
-            continue
 
-        file_path = os.path.join(root, file)
-        print(f"Processing {file_path}...")
+def detect_gpu():
+    gpu_available = False
+    library = None
+    try:
+        import torch  # type: ignore
+        if torch.cuda.is_available():
+            gpu_available = True
+            library = "pytorch"
+    except Exception:
+        pass
 
+    if not gpu_available:
         try:
-            # Load just the first row to detect the "Label" column (case-insensitive)
+            import tensorflow as tf  # type: ignore
+            gpus = tf.config.list_physical_devices("GPU")
+            if gpus:
+                gpu_available = True
+                library = "tensorflow"
+        except Exception:
+            pass
+
+    if gpu_available:
+        print("GPU detected.")
+    else:
+        print("GPU not detected. Using CPU.")
+    return gpu_available, library
+
+
+def prompt_for_device(gpu_available):
+    if gpu_available:
+        while True:
+            response = input("GPU detected. Use GPU? (y/n): ").lower().strip()
+            if response in ["y", "yes"]:
+                return "gpu"
+            if response in ["n", "no"]:
+                return "cpu"
+            print("Invalid input. Please enter 'y' or 'n'.")
+    return "cpu"
+
+
+def prompt_for_chunk_size_mb():
+    choices = {"25": 25, "100": 100, "500": 500, "1000": 1000}
+    while True:
+        response = input("Choose chunk size in MB (25/100/500/1000): ").strip()
+        if response in choices:
+            return choices[response]
+        print("Invalid choice. Please enter 25, 100, 500, or 1000.")
+
+
+def estimate_rows_per_chunk(file_path, chunk_mb, sample_rows=2000, default_rows=100_000):
+    target_bytes = int(chunk_mb) * 1024 * 1024
+    try:
+        sample = pd.read_csv(file_path, nrows=sample_rows, low_memory=True)
+        if sample is None or sample.empty:
+            return int(default_rows)
+        bytes_per_row = float(sample.memory_usage(deep=True).sum()) / float(max(1, len(sample)))
+        if bytes_per_row <= 0:
+            return int(default_rows)
+        est = int(target_bytes / bytes_per_row)
+        return max(10_000, min(2_000_000, est))
+    except Exception:
+        return int(default_rows)
+
+
+def make_unique_path(path):
+    if not os.path.exists(path):
+        return path
+    base, ext = os.path.splitext(path)
+    counter = 2
+    while True:
+        candidate = f"{base}_run{counter}{ext}"
+        if not os.path.exists(candidate):
+            return candidate
+        counter += 1
+
+
+def main():
+    gpu_available, _ = detect_gpu()
+    device_choice = prompt_for_device(gpu_available)
+    if device_choice == "gpu":
+        print("GPU selected, but this script uses CPU-based pandas. Using CPU.")
+    device_used = "cpu"
+
+    if not os.path.isdir(PARENT_FOLDER):
+        print(f"ERROR: Folder not found: {PARENT_FOLDER}")
+        return
+
+    csv_files = [os.path.join(root, file)
+                 for root, _, files in os.walk(PARENT_FOLDER)
+                 for file in files if file.endswith(".csv")]
+    if not csv_files:
+        print("No CSV files found.")
+        return
+
+    chunk_mb = prompt_for_chunk_size_mb()
+    chunk_rows = estimate_rows_per_chunk(csv_files[0], chunk_mb)
+    print(f"Using chunk size: {chunk_mb}MB (~{chunk_rows:,} rows per chunk)")
+
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+    overall_counts = {}
+    total_rows_processed = 0
+
+    for file_path in csv_files:
+        print(f"Processing {file_path}...")
+        try:
             header_df = pd.read_csv(file_path, nrows=0)
             label_col = None
             for col in header_df.columns:
@@ -30,8 +137,8 @@ for root, dirs, files in os.walk(parent_folder):
                 print(f"No 'Label' column in {file_path}, skipping.")
                 continue
 
-            # Now load only the label column, in chunks (to save memory)
-            for chunk in pd.read_csv(file_path, usecols=[label_col], chunksize=100000):
+            for chunk in pd.read_csv(file_path, usecols=[label_col], chunksize=chunk_rows):
+                total_rows_processed += len(chunk)
                 file_counts = chunk[label_col].value_counts().to_dict()
                 for lbl, cnt in file_counts.items():
                     overall_counts[lbl] = overall_counts.get(lbl, 0) + cnt
@@ -40,19 +147,33 @@ for root, dirs, files in os.walk(parent_folder):
             print(f"Error reading {file_path}: {e}")
             continue
 
-# Convert to DataFrame for saving
-summary_df = pd.DataFrame(list(overall_counts.items()), columns=["Label", "Count"])
-summary_df.to_csv("Overall_Label_Distribution.csv", index=False)
+    summary_df = pd.DataFrame(list(overall_counts.items()), columns=["Label", "Count"])
+    csv_path = make_unique_path(os.path.join(OUTPUT_FOLDER, "Overall_Label_Distribution.csv"))
+    summary_df.to_csv(csv_path, index=False)
 
-# --- Visualization ---
-plt.figure(figsize=(10, 6))
-summary_df.set_index("Label")["Count"].plot(kind="bar")
-plt.title("Overall Class Distribution (Benign vs. Attack Types)")
-plt.ylabel("Number of Samples")
-plt.xlabel("Label")
-plt.xticks(rotation=45)
-plt.tight_layout()
-plt.savefig("Overall_Class_Distribution.png", dpi=300)
-plt.show()
+    plt.figure(figsize=(10, 6))
+    summary_df.set_index("Label")["Count"].plot(kind="bar")
+    plt.title("Overall Class Distribution (Benign vs. Attack Types)")
+    plt.ylabel("Number of Samples")
+    plt.xlabel("Label")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plot_path = make_unique_path(os.path.join(OUTPUT_FOLDER, "Overall_Class_Distribution.png"))
+    plt.savefig(plot_path, dpi=300)
+    plt.close()
 
-print("Saved: Overall_Label_Distribution.csv and Overall_Class_Distribution.png")
+    print("Saved: Overall_Label_Distribution.csv and Overall_Class_Distribution.png")
+
+    print("\nFinal Summary")
+    print("-" * 40)
+    print(f"Device used: {device_used.upper()}")
+    print(f"Chunk size: {chunk_mb}MB (~{chunk_rows:,} rows)")
+    print(f"Total rows processed: {total_rows_processed:,}")
+    print("Rows saved: N/A")
+    print("Output paths:")
+    print(f"  - {csv_path}")
+    print(f"  - {plot_path}")
+
+
+if __name__ == "__main__":
+    main()

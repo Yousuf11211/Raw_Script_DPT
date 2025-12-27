@@ -1,3 +1,13 @@
+# What changed:
+# - Added GPU detection/device prompt and chunk size prompt with row estimation.
+# - Standardized outputs under ./outputs/Training_isolation_model with non-overwrite paths.
+# - Added optional max-rows limit for saved CSVs and a final summary.
+#
+# Purpose:
+# - Generate dominance reports, validate data, and handle inf values.
+# - Optionally clean CSVs based on detected issues.
+# - Provide helper functions for dominance analysis and column deletion.
+
 import os
 import pandas as pd
 import numpy as np
@@ -5,7 +15,11 @@ from collections import Counter, defaultdict
 
 # --- GLOBAL CONFIGURATION VARIABLES ---
 INPUT_FOLDER = "Training_isolation_model"
-CHUNK_SIZE = 1_000_000
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
+OUTPUT_FOLDER = os.path.join(OUTPUT_ROOT, "Training_isolation_model")
+
 DOMINANCE_RANGES = [
     (1.0, 1.01, "100%"),
     (0.95, 1.0, "95-100%"),
@@ -24,22 +38,136 @@ CAN_BE_NEGATIVE_KEYWORDS = ['skew', 'cov', 'delta']
 PORT_COLUMNS = ['src_port', 'dst_port']
 INF_THRESHOLD = 0
 
+CHUNK_ROWS = 1_000_000
 
-# ==============================================================================
-# TASK 1: DOMINANCE REPORT LOGIC (MODIFIED TO PRINT TO TERMINAL)
-# ==============================================================================
+SUMMARY = {
+    "total_rows_processed": 0,
+    "rows_saved": 0,
+    "output_paths": [],
+}
+
+
+# ============================================================================== 
+# HELPERS
+# ============================================================================== 
+
+def detect_gpu():
+    gpu_available = False
+    library = None
+    try:
+        import torch  # type: ignore
+        if torch.cuda.is_available():
+            gpu_available = True
+            library = "pytorch"
+    except Exception:
+        pass
+
+    if not gpu_available:
+        try:
+            import tensorflow as tf  # type: ignore
+            gpus = tf.config.list_physical_devices("GPU")
+            if gpus:
+                gpu_available = True
+                library = "tensorflow"
+        except Exception:
+            pass
+
+    if gpu_available:
+        print("GPU detected.")
+    else:
+        print("GPU not detected. Using CPU.")
+    return gpu_available, library
+
+
+def prompt_for_device(gpu_available):
+    if gpu_available:
+        while True:
+            response = input("GPU detected. Use GPU? (y/n): ").lower().strip()
+            if response in ["y", "yes"]:
+                return "gpu"
+            if response in ["n", "no"]:
+                return "cpu"
+            print("Invalid input. Please enter 'y' or 'n'.")
+    return "cpu"
+
+
+def prompt_for_chunk_size_mb():
+    choices = {"25": 25, "100": 100, "500": 500, "1000": 1000}
+    while True:
+        response = input("Choose chunk size in MB (25/100/500/1000): ").strip()
+        if response in choices:
+            return choices[response]
+        print("Invalid choice. Please enter 25, 100, 500, or 1000.")
+
+
+def estimate_rows_per_chunk(file_path, chunk_mb, sample_rows=2000, default_rows=1_000_000):
+    target_bytes = int(chunk_mb) * 1024 * 1024
+    try:
+        sample = pd.read_csv(file_path, nrows=sample_rows, low_memory=True)
+        if sample is None or sample.empty:
+            return int(default_rows)
+        bytes_per_row = float(sample.memory_usage(deep=True).sum()) / float(max(1, len(sample)))
+        if bytes_per_row <= 0:
+            return int(default_rows)
+        est = int(target_bytes / bytes_per_row)
+        return max(10_000, min(2_000_000, est))
+    except Exception:
+        return int(default_rows)
+
+
+def prompt_for_max_rows():
+    while True:
+        response = input("Limit rows to save? (y/n): ").strip().lower()
+        if response in ["y", "yes"]:
+            while True:
+                value = input("Enter max rows: ").strip()
+                try:
+                    max_rows = int(value)
+                    if max_rows > 0:
+                        return max_rows
+                except ValueError:
+                    pass
+                print("Please enter a positive integer.")
+        elif response in ["n", "no"]:
+            return None
+        else:
+            print("Invalid input. Please enter 'y' or 'n'.")
+
+
+def make_unique_path(path):
+    if not os.path.exists(path):
+        return path
+    base, ext = os.path.splitext(path)
+    counter = 2
+    while True:
+        candidate = f"{base}_run{counter}{ext}"
+        if not os.path.exists(candidate):
+            return candidate
+        counter += 1
+
+
+def record_output(path, rows_saved=0, rows_processed=0):
+    if path:
+        SUMMARY["output_paths"].append(path)
+    SUMMARY["rows_saved"] += int(rows_saved)
+    SUMMARY["total_rows_processed"] += int(rows_processed)
+
+
+# ============================================================================== 
+# TASK 1: DOMINANCE REPORT LOGIC
+# ============================================================================== 
 
 def generate_dominance_report(file_path):
-    """Analyzes a CSV for value dominance and creates a report."""
     print(f"\nGenerating Dominance Report for: {os.path.basename(file_path)}")
     col_counters = defaultdict(Counter)
     total_counts = Counter()
     label_counter = Counter()
     col_value_label_counter = defaultdict(lambda: defaultdict(Counter))
+    rows_processed = 0
 
     try:
-        # (Analysis phase is unchanged)
-        for chunk in pd.read_csv(file_path, chunksize=CHUNK_SIZE, dtype=str, low_memory=False):
+        for chunk in pd.read_csv(file_path, chunksize=CHUNK_ROWS, dtype=str, low_memory=False):
+            rows_processed += len(chunk)
             labels = chunk.get("Label") or chunk.get("label")
             if labels is not None:
                 label_counter.update(labels.dropna())
@@ -54,7 +182,8 @@ def generate_dominance_report(file_path):
 
         bucketed = {label: [] for _, _, label in DOMINANCE_RANGES}
         for col, counts in col_counters.items():
-            if total_counts[col] == 0: continue
+            if total_counts[col] == 0:
+                continue
             _, most_common_count = counts.most_common(1)[0]
             ratio = most_common_count / total_counts[col]
             for low, high, label in DOMINANCE_RANGES:
@@ -62,22 +191,19 @@ def generate_dominance_report(file_path):
                     bucketed[label].append((col, counts, total_counts[col]))
                     break
 
-        # --- MODIFICATION: Report is now printed to terminal AND saved to file ---
-        report_path = f"{os.path.splitext(file_path)[0]}_dominance_report.txt"
+        report_path = make_unique_path(
+            os.path.join(OUTPUT_FOLDER, f"{os.path.splitext(os.path.basename(file_path))[0]}_dominance_report.txt")
+        )
         with open(report_path, "w", encoding="utf-8") as f:
             header_text = f"Dominance Report for {os.path.basename(file_path)}"
             f.write(header_text + "\n")
             f.write("=" * 60 + "\n\n")
-            # No need to print the header to the terminal, it's already clear.
 
             if label_counter:
                 total_labels = sum(label_counter.values())
-
-                # Create, write, and print label distribution text
                 label_header = "Global Label Distribution:\n" + "-" * 40
                 f.write(label_header + "\n")
                 print("\n" + label_header)
-
                 for lbl, count in label_counter.most_common():
                     line_text = f"  {lbl}: {count:,} ({(count / total_labels) * 100:.2f}%)"
                     f.write(line_text + "\n")
@@ -85,7 +211,6 @@ def generate_dominance_report(file_path):
                 f.write("\n")
 
             for label in bucketed:
-                # Create, write, and print bucket header
                 bucket_header = f"\nColumns in {label} range:\n" + "-" * 40
                 f.write(bucket_header + "\n")
                 print(bucket_header)
@@ -101,89 +226,101 @@ def generate_dominance_report(file_path):
 
                         for val, count in counts.most_common():
                             ratio = count / total
-
-                            # Build the line first
                             line_to_output = f"  Value '{val}': {count:,} ({ratio * 100:.2f}%)"
                             if val in col_value_label_counter.get(col, {}):
                                 lbl_counts = col_value_label_counter[col][val]
                                 breakdown = ", ".join(f"{lbl}: {c:,}" for lbl, c in lbl_counts.most_common())
                                 line_to_output += f" -> Labels: [{breakdown}]"
 
-                            # Write and print the complete line
                             f.write(line_to_output + "\n")
                             print(line_to_output)
 
         print(f"\nReport also saved to {report_path}")
+        record_output(report_path, rows_processed=rows_processed)
 
     except Exception as e:
         print(f"Error during dominance report: {e}")
 
 
-# ==============================================================================
-# TASK 2: DATA VALIDATION & CLEANING LOGIC (ROW REMOVAL)
-# ==============================================================================
+# ============================================================================== 
+# TASK 2: DATA VALIDATION & CLEANING LOGIC
+# ============================================================================== 
+
+def _build_invalid_mask(chunk):
+    invalid_mask = pd.Series(False, index=chunk.index)
+    for col in chunk.columns:
+        if any(kw in col.lower() for kw in CAN_BE_NEGATIVE_KEYWORDS):
+            continue
+        if any(kw in col.lower() for kw in NEVER_NEGATIVE_KEYWORDS):
+            numeric_col = pd.to_numeric(chunk[col], errors='coerce')
+            invalid_mask |= numeric_col < 0
+    for col in PORT_COLUMNS:
+        if col in chunk.columns:
+            numeric_col = pd.to_numeric(chunk[col], errors='coerce')
+            invalid_mask |= ~numeric_col.between(0, 65535)
+    return invalid_mask
+
+
 def run_data_validation(file_path):
-    """Loads a CSV and runs the full validation and cleaning pipeline."""
     print(f"\nValidating and Cleaning: {os.path.basename(file_path)}")
+    rows_processed = 0
+    invalid_total = 0
     try:
-        df = pd.concat([chunk for chunk in pd.read_csv(file_path, chunksize=CHUNK_SIZE)])
-        print(f"Loaded {len(df)} rows.")
-        results = {'negative_issues': {}, 'port_issues': {}, 'percentage_issues': {}}
-        if 'Label' in df.columns and 'label' not in df.columns:
-            df = df.rename(columns={'Label': 'label'})
-        if 'label' not in df.columns:
-            print("Warning: 'label' column not found.")
-            df['label'] = 'Unknown'
-        for col in df.columns:
-            if any(kw in col.lower() for kw in CAN_BE_NEGATIVE_KEYWORDS): continue
-            if any(kw in col.lower() for kw in NEVER_NEGATIVE_KEYWORDS):
-                numeric_col = pd.to_numeric(df[col], errors='coerce')
-                if (numeric_col < 0).sum() > 0:
-                    mask = numeric_col < 0
-                    results['negative_issues'][col] = {'count': mask.sum(), 'rows': list(df[mask].index),
-                                                       'labels': df.loc[mask, 'label'].value_counts().to_dict()}
-                    print(results)
-        for col in PORT_COLUMNS:
-            if col in df.columns:
-                numeric_col = pd.to_numeric(df[col], errors='coerce')
-                if (~numeric_col.between(0, 65535)).sum() > 0:
-                    mask = ~numeric_col.between(0, 65535)
-                    results['port_issues'][col] = {'count': mask.sum(), 'rows': list(df[mask].index),
-                                                   'labels': df.loc[mask, 'label'].value_counts().to_dict()}
-                    print(results)
-        invalid_indices = set()
-        for group in results.values():
-            for info in group.values():
-                invalid_indices.update(info['rows'])
-        if not invalid_indices:
+        for chunk in pd.read_csv(file_path, chunksize=CHUNK_ROWS, low_memory=False):
+            rows_processed += len(chunk)
+            if 'Label' in chunk.columns and 'label' not in chunk.columns:
+                chunk = chunk.rename(columns={'Label': 'label'})
+            invalid_mask = _build_invalid_mask(chunk)
+            invalid_total += int(invalid_mask.sum())
+
+        if invalid_total == 0:
             print("\nNo invalid rows to clean.")
+            record_output(None, rows_processed=rows_processed)
             return
-        print(f" {invalid_indices} invalid rows to clean.")
-        print(results)
-        print(f"\nFound {len(invalid_indices)} unique rows with invalid values.")
+
+        print(f"\nFound {invalid_total} invalid rows.")
         if input("Remove invalid rows and save new file? (y/n): ").lower() == 'y':
-            df_clean = df.drop(index=list(invalid_indices)).copy()
+            max_rows = prompt_for_max_rows()
             clean_filename = f"{os.path.splitext(os.path.basename(file_path))[0]}_validated.csv"
-            output_path = os.path.join(os.path.dirname(file_path), clean_filename)
-            df_clean.to_csv(output_path, index=False)
+            output_path = make_unique_path(os.path.join(OUTPUT_FOLDER, clean_filename))
+
+            is_first_chunk = True
+            rows_written = 0
+            for chunk in pd.read_csv(file_path, chunksize=CHUNK_ROWS, low_memory=False):
+                if 'Label' in chunk.columns and 'label' not in chunk.columns:
+                    chunk = chunk.rename(columns={'Label': 'label'})
+                invalid_mask = _build_invalid_mask(chunk)
+                cleaned = chunk.loc[~invalid_mask].copy()
+                if max_rows is not None:
+                    remaining = max_rows - rows_written
+                    if remaining <= 0:
+                        break
+                    if len(cleaned) > remaining:
+                        cleaned = cleaned.iloc[:remaining]
+                if not cleaned.empty:
+                    cleaned.to_csv(output_path, index=False, mode='w' if is_first_chunk else 'a', header=is_first_chunk)
+                    is_first_chunk = False
+                    rows_written += len(cleaned)
             print(f"Saved clean data to: {output_path}")
+            record_output(output_path, rows_saved=rows_written, rows_processed=rows_processed)
         else:
             print("Skipping data cleaning.")
+            record_output(None, rows_processed=rows_processed)
     except Exception as e:
         print(f"Error during data validation: {e}")
 
 
-# ==============================================================================
+# ============================================================================== 
 # TASK 3: 'INF' COLUMN REMOVAL LOGIC
-# ==============================================================================
+# ============================================================================== 
+
 def run_inf_column_removal(file_path):
-    """Analyzes and removes columns with a high percentage of 'inf' values."""
     print(f"\n--- Processing file for 'inf' columns: {os.path.basename(file_path)} ---")
     print(f"Phase 1: Analyzing columns (Threshold: {INF_THRESHOLD:.0%})...")
     inf_counts = pd.Series(dtype=int)
     total_rows = 0
     try:
-        for chunk in pd.read_csv(file_path, chunksize=CHUNK_SIZE, low_memory=False):
+        for chunk in pd.read_csv(file_path, chunksize=CHUNK_ROWS, low_memory=False):
             total_rows += len(chunk)
             inf_counts = inf_counts.add(chunk.apply(pd.to_numeric, errors='coerce').pipe(np.isinf).sum(), fill_value=0)
         if total_rows == 0:
@@ -198,9 +335,9 @@ def run_inf_column_removal(file_path):
     if not columns_to_delete:
         print("Result: No columns exceeded the 'inf' threshold.")
         if (inf_counts > 0).any():
-            if input(
-                    "Some 'inf' values were found below the threshold. Handle them with imputation? (y/n): ").lower() == 'y':
+            if input("Some 'inf' values were found below the threshold. Handle them with imputation? (y/n): ").lower() == 'y':
                 run_inf_imputation(file_path)
+        record_output(None, rows_processed=total_rows)
         return
 
     print(f"\nFound {len(columns_to_delete)} columns to remove:")
@@ -209,22 +346,32 @@ def run_inf_column_removal(file_path):
 
     if input("Permanently delete these columns? (y/n): ").lower() not in ['yes', 'y']:
         print("Operation cancelled.")
+        record_output(None, rows_processed=total_rows)
         return
 
     print("\nPhase 2: Deleting columns and creating new file...")
     base_name = os.path.splitext(os.path.basename(file_path))[0]
     output_filename = f"{base_name}_cleaned.csv"
-    output_csv_path = os.path.join(os.path.dirname(file_path), output_filename)
+    output_csv_path = make_unique_path(os.path.join(OUTPUT_FOLDER, output_filename))
+    max_rows = prompt_for_max_rows()
+
     try:
         is_first_chunk = True
-        for chunk in pd.read_csv(file_path, chunksize=CHUNK_SIZE, low_memory=False):
+        rows_written = 0
+        for chunk in pd.read_csv(file_path, chunksize=CHUNK_ROWS, low_memory=False):
             chunk.drop(columns=columns_to_delete, inplace=True, errors='ignore')
-            if is_first_chunk:
-                chunk.to_csv(output_csv_path, index=False, mode='w')
+            if max_rows is not None:
+                remaining = max_rows - rows_written
+                if remaining <= 0:
+                    break
+                if len(chunk) > remaining:
+                    chunk = chunk.iloc[:remaining]
+            if not chunk.empty:
+                chunk.to_csv(output_csv_path, index=False, mode='w' if is_first_chunk else 'a', header=is_first_chunk)
                 is_first_chunk = False
-            else:
-                chunk.to_csv(output_csv_path, index=False, mode='a', header=False)
+                rows_written += len(chunk)
         print(f"Successfully created '{output_filename}'")
+        record_output(output_csv_path, rows_saved=rows_written, rows_processed=total_rows)
 
         print("\n--- Next Steps for the Cleaned File ---")
         print("What would you like to do now?")
@@ -244,20 +391,16 @@ def run_inf_column_removal(file_path):
         print(f"Error during file creation: {e}")
 
 
-# ==============================================================================
-# TASK 4: REPORT REMAINING 'INF' VALUES (New Helper Function)
-# ==============================================================================
 def report_remaining_inf(file_path):
-    """A simple analysis pass to report, but not act on, 'inf' values."""
     print(f"\n--- Re-analyzing for remaining 'inf' in {os.path.basename(file_path)} ---")
     inf_counts = pd.Series(dtype=int)
     total_rows = 0
     try:
-        for chunk in pd.read_csv(file_path, chunksize=CHUNK_SIZE, low_memory=False):
+        for chunk in pd.read_csv(file_path, chunksize=CHUNK_ROWS, low_memory=False):
             total_rows += len(chunk)
             inf_counts = inf_counts.add(chunk.apply(pd.to_numeric, errors='coerce').pipe(np.isinf).sum(), fill_value=0)
-        if total_rows == 0: return
-
+        if total_rows == 0:
+            return
         inf_percentages = inf_counts / total_rows
         remaining_inf_cols = inf_percentages[inf_percentages > 0].index.tolist()
 
@@ -267,21 +410,18 @@ def report_remaining_inf(file_path):
             print("Found remaining 'inf' values in the following columns:")
             for col in remaining_inf_cols:
                 print(f"  - '{col}': {inf_counts[col]} values ({inf_percentages[col]:.4f}%)")
+        record_output(None, rows_processed=total_rows)
     except Exception as e:
         print(f"Error during re-analysis: {e}")
 
 
-# ==============================================================================
-# TASK 5: 'INF' IMPUTATION LOGIC (New Function)
-# ==============================================================================
 def run_inf_imputation(file_path):
-    """Finds all 'inf' values and replaces them with the column median."""
     print(f"\n--- Imputing 'inf' values in {os.path.basename(file_path)} ---")
     medians = {}
     try:
         print("Phase 1: Calculating medians for columns with 'inf' values...")
         inf_counts = pd.Series(dtype=int)
-        for chunk in pd.read_csv(file_path, chunksize=CHUNK_SIZE, low_memory=False):
+        for chunk in pd.read_csv(file_path, chunksize=CHUNK_ROWS, low_memory=False):
             inf_counts = inf_counts.add(chunk.apply(pd.to_numeric, errors='coerce').pipe(np.isinf).sum(), fill_value=0)
         cols_to_process = inf_counts[inf_counts > 0].index.tolist()
 
@@ -298,49 +438,44 @@ def run_inf_imputation(file_path):
         print("\nPhase 2: Replacing 'inf' values and saving new file...")
         base_name = os.path.splitext(os.path.basename(file_path))[0]
         output_filename = f"{base_name}_imputed.csv"
-        output_csv_path = os.path.join(os.path.dirname(file_path), output_filename)
+        output_csv_path = make_unique_path(os.path.join(OUTPUT_FOLDER, output_filename))
+        max_rows = prompt_for_max_rows()
+
         is_first_chunk = True
-        for chunk in pd.read_csv(file_path, chunksize=CHUNK_SIZE, low_memory=False):
+        rows_written = 0
+        rows_processed = 0
+        for chunk in pd.read_csv(file_path, chunksize=CHUNK_ROWS, low_memory=False):
+            rows_processed += len(chunk)
             for col, median_val in medians.items():
                 if col in chunk.columns:
                     chunk[col] = pd.to_numeric(chunk[col], errors='coerce').replace([np.inf, -np.inf], median_val)
-            if is_first_chunk:
-                chunk.to_csv(output_csv_path, index=False, mode='w')
+            if max_rows is not None:
+                remaining = max_rows - rows_written
+                if remaining <= 0:
+                    break
+                if len(chunk) > remaining:
+                    chunk = chunk.iloc[:remaining]
+            if not chunk.empty:
+                chunk.to_csv(output_csv_path, index=False, mode='w' if is_first_chunk else 'a', header=is_first_chunk)
                 is_first_chunk = False
-            else:
-                chunk.to_csv(output_csv_path, index=False, mode='a', header=False)
+                rows_written += len(chunk)
         print(f"Successfully created '{output_filename}'")
+        record_output(output_csv_path, rows_saved=rows_written, rows_processed=rows_processed)
     except Exception as e:
         print(f"Error during imputation: {e}")
 
 
-# ==============================================================================
+# ============================================================================== 
 # NEW: REUSABLE DOMINANCE ANALYSIS HELPERS FOR DJANGO VIEWS
-# ==============================================================================
+# ============================================================================== 
 
 def analyze_dominance_for_web(file_path, dominance_label=None):
-    """Return structured dominance stats for use in the web UI.
-
-    Parameters
-    ----------
-    file_path : str
-        Absolute path to the CSV file.
-    dominance_label : str or None
-        One of the labels from DOMINANCE_RANGES (e.g. "95-100%", "90-95%"),
-        or None to return all buckets.
-
-    Returns
-    -------
-    dict with keys:
-        - label_distribution: list of {label, count, percentage}
-        - columns: list of per-column dicts with dominance info
-    """
     col_counters = defaultdict(Counter)
     total_counts = Counter()
     label_counter = Counter()
     col_value_label_counter = defaultdict(lambda: defaultdict(Counter))
 
-    for chunk in pd.read_csv(file_path, chunksize=CHUNK_SIZE, dtype=str, low_memory=False):
+    for chunk in pd.read_csv(file_path, chunksize=CHUNK_ROWS, dtype=str, low_memory=False):
         labels = chunk.get("Label") or chunk.get("label")
         if labels is not None:
             label_counter.update(labels.dropna())
@@ -364,7 +499,6 @@ def analyze_dominance_for_web(file_path, dominance_label=None):
                 bucketed[label].append((col, most_common_val, most_common_count, ratio, counts, total_counts[col]))
                 break
 
-    # Build label distribution
     label_distribution = []
     if label_counter:
         total_labels = sum(label_counter.values())
@@ -375,7 +509,6 @@ def analyze_dominance_for_web(file_path, dominance_label=None):
                 "percentage": float((count / total_labels) * 100.0),
             })
 
-    # Build per-column entries
     columns = []
     wanted_labels = [dominance_label] if dominance_label else list(bucketed.keys())
     for bucket_label in wanted_labels:
@@ -401,24 +534,12 @@ def analyze_dominance_for_web(file_path, dominance_label=None):
 
 
 def delete_columns_for_web(file_path, output_path, columns_to_delete):
-    """Create a cleaned CSV with the given columns removed.
-
-    Parameters
-    ----------
-    file_path : str
-        Absolute path to the input CSV.
-    output_path : str
-        Absolute path to the cleaned CSV to be written.
-    columns_to_delete : list[str]
-        Column names to drop from the file.
-    """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     cols_to_drop = list(dict.fromkeys(columns_to_delete or []))
     if not cols_to_drop:
-        # Nothing to delete; simply copy file
         is_first_chunk = True
-        for chunk in pd.read_csv(file_path, chunksize=CHUNK_SIZE, low_memory=False):
+        for chunk in pd.read_csv(file_path, chunksize=CHUNK_ROWS, low_memory=False):
             mode = "w" if is_first_chunk else "a"
             chunk.to_csv(output_path, index=False, mode=mode, header=is_first_chunk)
             is_first_chunk = False
@@ -428,7 +549,7 @@ def delete_columns_for_web(file_path, output_path, columns_to_delete):
         }
 
     is_first_chunk = True
-    for chunk in pd.read_csv(file_path, chunksize=CHUNK_SIZE, low_memory=False):
+    for chunk in pd.read_csv(file_path, chunksize=CHUNK_ROWS, low_memory=False):
         chunk.drop(columns=cols_to_drop, inplace=True, errors="ignore")
         mode = "w" if is_first_chunk else "a"
         chunk.to_csv(output_path, index=False, mode=mode, header=is_first_chunk)
@@ -440,3 +561,86 @@ def delete_columns_for_web(file_path, output_path, columns_to_delete):
     }
 
 
+# ============================================================================== 
+# MAIN
+# ============================================================================== 
+
+def main():
+    gpu_available, _ = detect_gpu()
+    device_choice = prompt_for_device(gpu_available)
+    if device_choice == "gpu":
+        print("GPU selected, but this script uses CPU-based pandas. Using CPU.")
+    device_used = "cpu"
+
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+    if not os.path.isdir(INPUT_FOLDER):
+        print(f"Error: Input folder not found at '{INPUT_FOLDER}'")
+        return
+
+    csv_files = sorted([os.path.join(INPUT_FOLDER, f) for f in os.listdir(INPUT_FOLDER) if f.endswith(".csv")])
+    if not csv_files:
+        print("No CSV files found in the specified directory.")
+        return
+
+    chunk_mb = prompt_for_chunk_size_mb()
+    global CHUNK_ROWS
+    CHUNK_ROWS = estimate_rows_per_chunk(csv_files[0], chunk_mb)
+    print(f"Using chunk size: {chunk_mb}MB (~{CHUNK_ROWS:,} rows per chunk)")
+
+    print("\nPlease choose a task to perform on the files:")
+    print("  1: Generate Dominance Report")
+    print("  2: Validate Data and Remove Invalid Rows")
+    print("  3: Handle Columns with High 'inf' Values")
+    task_choice = input("Enter your choice (1, 2, or 3): ").strip()
+    if task_choice not in ['1', '2', '3']:
+        print("Invalid choice. Exiting.")
+        return
+
+    print("\n--- CSV Files Found ---")
+    for i, file_path in enumerate(csv_files, 1):
+        print(f"  {i}: {os.path.basename(file_path)}")
+    print("-----------------------")
+
+    while True:
+        file_choice = input("Enter the numbers of files to process (e.g., 1,3,5), or type 'all': ").strip().lower()
+        if file_choice == 'all':
+            files_to_process = csv_files
+            break
+        try:
+            indices = [int(num.strip()) - 1 for num in file_choice.split(',')]
+            valid_indices = [i for i in indices if 0 <= i < len(csv_files)]
+            if len(valid_indices) != len(indices):
+                print("Warning: Some numbers were out of range.")
+            if not valid_indices:
+                print("Error: No valid file numbers were entered.")
+                continue
+            files_to_process = [csv_files[i] for i in valid_indices]
+            break
+        except ValueError:
+            print("Invalid input. Please enter numbers separated by commas or 'all'.")
+
+    for file_path in files_to_process:
+        if task_choice == '1':
+            generate_dominance_report(file_path)
+        elif task_choice == '2':
+            run_data_validation(file_path)
+        elif task_choice == '3':
+            run_inf_column_removal(file_path)
+        print("-" * 70)
+
+    print("\nAll selected operations are complete.")
+
+    print("\nFinal Summary")
+    print("-" * 40)
+    print(f"Device used: {device_used.upper()}")
+    print(f"Chunk size: {chunk_mb}MB (~{CHUNK_ROWS:,} rows)")
+    print(f"Total rows processed: {SUMMARY['total_rows_processed']:,}")
+    print(f"Rows saved: {SUMMARY['rows_saved']:,}")
+    print("Output paths:")
+    for path in SUMMARY["output_paths"]:
+        print(f"  - {path}")
+
+
+if __name__ == "__main__":
+    main()

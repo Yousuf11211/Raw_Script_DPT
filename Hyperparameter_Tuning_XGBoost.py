@@ -1,118 +1,236 @@
+# What changed:
+# - Added GPU detection/device prompt and chunk size prompt with row estimation.
+# - Streamed sampling for training/test to cap memory usage.
+# - Standardized outputs under ./outputs/Tuning_XGBoost with final summary.
+#
+# Purpose:
+# - Run manual grid search tuning for XGBoost.
+# - Save tuning results, summary report, model, and heatmap.
+# - Evaluate best model on a sampled test set.
+
 import os
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.model_selection import ParameterGrid, cross_validate
-import xgboost as xgb  # <-- Import XGBoost
+import xgboost as xgb
 from sklearn.metrics import classification_report
 import joblib
 import time
 
 # ===== 1. CONFIGURATION =====
-# --- TODO: Set the exact paths to your files and folders here ---
-TRAIN_FILE_PATH = "After_Feature_selection/training_balanced.csv"  # Your single training file
-TEST_FILE_PATH = "Test_Ready_2018/test.csv"  # Your single testing file
+TRAIN_FILE_PATH = "After_Feature_selection/training_balanced.csv"
+TEST_FILE_PATH = "Test_Ready_2018/test.csv"
 
-MODEL_FOLDER = "Tuning_XGBoost/Tuned_Models_2018"  # Where to save the final tuned model file
-REPORT_FOLDER = "Tuning_XGBoost/Tuning_Reports_2018"  # Where to save reports, results, and plots
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
+MODEL_FOLDER = os.path.join(OUTPUT_ROOT, "Tuning_XGBoost", "Tuned_Models_2018")
+REPORT_FOLDER = os.path.join(OUTPUT_ROOT, "Tuning_XGBoost", "Tuning_Reports_2018")
 
-# Create the output folders if they do not already exist
-os.makedirs(MODEL_FOLDER, exist_ok=True)
-os.makedirs(REPORT_FOLDER, exist_ok=True)
+MAX_SAMPLE_ROWS = 500_000
 
-# ===== 2. MAIN EXECUTION BLOCK =====
+
+# ===== Helpers =====
+
+def detect_gpu():
+    gpu_available = False
+    library = None
+    try:
+        import torch  # type: ignore
+        if torch.cuda.is_available():
+            gpu_available = True
+            library = "pytorch"
+    except Exception:
+        pass
+
+    if not gpu_available:
+        try:
+            import tensorflow as tf  # type: ignore
+            gpus = tf.config.list_physical_devices("GPU")
+            if gpus:
+                gpu_available = True
+                library = "tensorflow"
+        except Exception:
+            pass
+
+    if gpu_available:
+        print("GPU detected.")
+    else:
+        print("GPU not detected. Using CPU.")
+    return gpu_available, library
+
+
+def prompt_for_device(gpu_available):
+    if gpu_available:
+        while True:
+            response = input("GPU detected. Use GPU? (y/n): ").lower().strip()
+            if response in ["y", "yes"]:
+                return "gpu"
+            if response in ["n", "no"]:
+                return "cpu"
+            print("Invalid input. Please enter 'y' or 'n'.")
+    return "cpu"
+
+
+def prompt_for_chunk_size_mb():
+    choices = {"25": 25, "100": 100, "500": 500, "1000": 1000}
+    while True:
+        response = input("Choose chunk size in MB (25/100/500/1000): ").strip()
+        if response in choices:
+            return choices[response]
+        print("Invalid choice. Please enter 25, 100, 500, or 1000.")
+
+
+def estimate_rows_per_chunk(file_path, chunk_mb, sample_rows=2000, default_rows=500_000):
+    target_bytes = int(chunk_mb) * 1024 * 1024
+    try:
+        sample = pd.read_csv(file_path, nrows=sample_rows, low_memory=True)
+        if sample is None or sample.empty:
+            return int(default_rows)
+        bytes_per_row = float(sample.memory_usage(deep=True).sum()) / float(max(1, len(sample)))
+        if bytes_per_row <= 0:
+            return int(default_rows)
+        est = int(target_bytes / bytes_per_row)
+        return max(10_000, min(2_000_000, est))
+    except Exception:
+        return int(default_rows)
+
+
+def count_rows(file_path, chunk_rows):
+    total = 0
+    for chunk in pd.read_csv(file_path, chunksize=chunk_rows, low_memory=False):
+        total += len(chunk)
+    return total
+
+
+def load_sampled_data(file_path, chunk_rows, max_rows, random_state=42):
+    total_rows = count_rows(file_path, chunk_rows)
+    if total_rows <= 0:
+        return pd.DataFrame(), 0, 0
+
+    frac = min(1.0, float(max_rows) / float(total_rows))
+    sampled_chunks = []
+    sampled_rows = 0
+
+    for idx, chunk in enumerate(pd.read_csv(file_path, chunksize=chunk_rows, low_memory=False)):
+        sample = chunk.sample(frac=frac, random_state=random_state) if frac < 1.0 else chunk
+        if not sample.empty:
+            sampled_chunks.append(sample)
+            sampled_rows += len(sample)
+        if (idx + 1) % 5 == 0:
+            print(f"  Sampled {sampled_rows:,} rows so far...")
+        if sampled_rows >= max_rows:
+            break
+
+    if not sampled_chunks:
+        return pd.DataFrame(), total_rows, 0
+
+    data = pd.concat(sampled_chunks, ignore_index=True)
+    if len(data) > max_rows:
+        data = data.sample(n=max_rows, random_state=random_state).reset_index(drop=True)
+        sampled_rows = len(data)
+
+    return data, total_rows, sampled_rows
+
+
+def build_xgb_params(device, extra=None):
+    params = {
+        "random_state": 42,
+        "use_label_encoder": False,
+        "eval_metric": "mlogloss",
+        "n_jobs": 1,
+    }
+    if device == "gpu":
+        params.update({"tree_method": "gpu_hist", "predictor": "gpu_predictor"})
+    if extra:
+        params.update(extra)
+    return params
+
+
+def fit_xgb_model(X, y, device, params):
+    try:
+        model = xgb.XGBClassifier(**build_xgb_params(device, params))
+        model.fit(X, y)
+        return model, device
+    except Exception as exc:
+        if device == "gpu":
+            print(f"GPU training failed, falling back to CPU. Error: {exc}")
+            model = xgb.XGBClassifier(**build_xgb_params("cpu", params))
+            model.fit(X, y)
+            return model, "cpu"
+        raise
+
+
+# ===== MAIN =====
 if __name__ == "__main__":
-    # --- Check if files exist before starting ---
+    gpu_available, _ = detect_gpu()
+    device_choice = prompt_for_device(gpu_available)
+
     if not os.path.exists(TRAIN_FILE_PATH):
         print(f"Error: Training file not found at '{TRAIN_FILE_PATH}'")
     elif not os.path.exists(TEST_FILE_PATH):
         print(f"Error: Testing file not found at '{TEST_FILE_PATH}'")
     else:
-        print(f"Starting the XGBoost tuning process...")
+        os.makedirs(MODEL_FOLDER, exist_ok=True)
+        os.makedirs(REPORT_FOLDER, exist_ok=True)
 
-        # --- Create a unique base name for XGBoost files ---
+        chunk_mb = prompt_for_chunk_size_mb()
+        chunk_rows = estimate_rows_per_chunk(TRAIN_FILE_PATH, chunk_mb)
+        print(f"Using chunk size: {chunk_mb}MB (~{chunk_rows:,} rows per chunk)")
+
+        print("Starting the XGBoost tuning process...")
         base_name = os.path.basename(TRAIN_FILE_PATH).replace(".csv", "") + "_xgboost"
-        print(f"Using base name for output files: {base_name}")
-
-        # Define the file path for our checkpointed results
         results_csv_path = os.path.join(REPORT_FOLDER, f"{base_name}_full_tuning_results.csv")
 
-        # --- Load TRAINING Data ---
         print(f"Loading training data from: {TRAIN_FILE_PATH}")
-        train_data = pd.read_csv(TRAIN_FILE_PATH, low_memory=False)
+        train_data, train_total_rows, _ = load_sampled_data(TRAIN_FILE_PATH, chunk_rows, MAX_SAMPLE_ROWS)
         train_data.columns = train_data.columns.str.lower()
 
         X_train = train_data.drop(columns=['label'])
         y_train = train_data['label']
 
-        # XGBoost requires labels to be 0-indexed if they are integers
-        # If your labels are strings, this is fine. If they are numbers (e.g., 1, 2, 3),
-        # they might need to be remapped to (0, 1, 2).
-        # We can check and apply this if needed.
-        # --- THIS IS THE NEW, CORRECTED CODE ---
         print("Remapping labels for XGBoost (to be 0-indexed)...")
-
-        # Get all unique labels (strings like 'Bot', 'DDoS_HOIC', etc.)
         unique_labels = sorted(y_train.unique())
-
-        # Create a mapping: {'Bot': 0, 'Brute_Force_SSH': 1, ...}
         label_map = {label: i for i, label in enumerate(unique_labels)}
-
-        # Apply this mapping to y_train
         y_train = y_train.map(label_map)
 
         print(f"Label map created and applied. {len(unique_labels)} classes found.")
         print(label_map)
-
         print(f"Training set shape: {X_train.shape}")
         print("-" * 50)
 
-        # --- Manual Hyperparameter Tuning with Checkpointing ---
         print("\nStarting Manual Grid Search for XGBoost...")
-        # --- XGBoost-specific parameter grid ---
         param_grid = {
             'n_estimators': [100, 200, 300],
-            'max_depth': [5, 10, 20],  # RF can be deep, XGB shallower
-            'learning_rate': [0.01, 0.1],  # XGB-specific
-            'subsample': [0.8, 1.0]  # XGB-specific
+            'max_depth': [5, 10, 20],
+            'learning_rate': [0.01, 0.1],
+            'subsample': [0.8, 1.0]
         }
 
-        # Create a list of all parameter combinations
         param_list = list(ParameterGrid(param_grid))
         total_iterations = len(param_list)
         print(f"Total parameter combinations to test: {total_iterations}")
 
         results_list = []
-        best_score = -1.0  # Initialize with a low score
+        best_score = -1.0
         best_params = {}
 
-        # --- Start the iteration loop ---
         for i, params in enumerate(param_list):
             start_time = time.time()
             print(f"\n[Iteration {i + 1}/{total_iterations}] Testing params: {params}")
 
-            # 1. Initialize the model with current params
-            model = xgb.XGBClassifier(
-                random_state=42,
-                use_label_encoder=False,  # Suppress warning
-                eval_metric='mlogloss',  # 'mlogloss' for multiclass
-                n_jobs=1,  # Let cross_validate handle parallel jobs
-                # tree_method='gpu_hist', # UNCOMMENT this if you have a GPU
-                **params
-            )
+            model = xgb.XGBClassifier(**build_xgb_params(device_choice, params))
 
-            # 2. Run cross-validation
             cv_results = cross_validate(
                 model,
                 X_train,
                 y_train,
                 scoring='f1_macro',
                 cv=3,
-                n_jobs=2,  # Run 2 folds in parallel
+                n_jobs=2,
                 verbose=0
             )
 
-            # 3. Calculate mean score and other metrics
             mean_score = cv_results['test_score'].mean()
             std_score = cv_results['test_score'].std()
             fit_time = cv_results['fit_time'].mean()
@@ -120,23 +238,19 @@ if __name__ == "__main__":
             print(f"  -> F1-Macro: {mean_score:.4f} (±{std_score:.4f})")
             print(f"  -> Avg. Fit Time: {fit_time:.2f}s")
 
-            # 4. Store results
             current_result = {
                 'mean_test_score': mean_score,
                 'std_test_score': std_score,
                 'mean_fit_time': fit_time
             }
-            # Add parameter values to the dictionary for easy analysis
             current_result.update({f'param_{k}': v for k, v in params.items()})
             results_list.append(current_result)
 
-            # 5. Check if this is the new best model
             if mean_score > best_score:
                 best_score = mean_score
                 best_params = params
-                print(f"  -> *** New Best Score Found! ***")
+                print("  -> *** New Best Score Found! ***")
 
-            # 6. CHECKPOINT: Save cumulative results to CSV
             results_df = pd.DataFrame(results_list)
             results_df.to_csv(results_csv_path, index=False)
             print(f"  -> Saved {len(results_list)} results to: {results_csv_path}")
@@ -147,27 +261,16 @@ if __name__ == "__main__":
         print(f"Best cross-validation F1-macro score (from training data): {best_score:.4f}")
         print("-" * 50)
 
-        # --- Refit the Best Model on the *Entire* Training Set ---
         print("\nRefitting the best model on the entire training set...")
-        best_xgb_model = xgb.XGBClassifier(
-            random_state=42,
-            use_label_encoder=False,
-            eval_metric='mlogloss',
-            n_jobs=1,
-            # tree_method='gpu_hist', # UNCOMMENT this if you have a GPU
-            **best_params
-        )
-        best_xgb_model.fit(X_train, y_train)
+        best_xgb_model, device_used = fit_xgb_model(X_train, y_train, device_choice, best_params)
         print("Refit complete.")
 
-        # --- Final Model Evaluation on the SEPARATE Test Set ---
         print(f"\nLoading separate test data from: {TEST_FILE_PATH}...")
-        test_data = pd.read_csv(TEST_FILE_PATH, low_memory=False)
+        test_data, test_total_rows, _ = load_sampled_data(TEST_FILE_PATH, chunk_rows, MAX_SAMPLE_ROWS)
         test_data.columns = test_data.columns.str.lower()
         X_test = test_data.drop(columns=['label'])
         y_test = test_data['label']
 
-        # Apply the same label mapping to the test set
         if 'label_map' in locals():
             print("Applying label map to test set...")
             y_test = y_test.map(label_map)
@@ -179,8 +282,6 @@ if __name__ == "__main__":
         print("\n--- Final Classification Report ---")
         print(final_report)
 
-        # --- Save All Results and Artifacts ---
-        # 1. Save the summary text report
         report_path = os.path.join(REPORT_FOLDER, f"{base_name}_summary_report.txt")
         with open(report_path, "w") as f:
             f.write(f"Tuning Report for {base_name}\n")
@@ -192,17 +293,12 @@ if __name__ == "__main__":
             f.write(final_report)
         print(f"\nSaved summary report to: {report_path}")
 
-        # 2. Save the final, tuned model file
         model_path = os.path.join(MODEL_FOLDER, f"{base_name}_tuned_model.pkl")
         joblib.dump(best_xgb_model, model_path)
         print(f"Saved tuned model to: {model_path}")
 
-        # 3. The full tuning results CSV is already saved!
         print(f"Full tuning results table is saved at: {results_csv_path}")
 
-        # 4. Save a heatmap visualization of the tuning results
-        # This will create a heatmap of max_depth vs n_estimators,
-        # averaging the scores across the other dimensions (learning_rate, subsample)
         try:
             heatmap_data = results_df.pivot_table(
                 index='param_max_depth',
@@ -223,4 +319,12 @@ if __name__ == "__main__":
             print(f"\nCould not generate heatmap. Error: {e}")
             print("This can happen if your grid search only has one value for an axis.")
 
-        print("\n\nProcess finished successfully.")
+        print("\nFinal Summary")
+        print("-" * 40)
+        print(f"Device used: {device_used.upper()}")
+        print(f"Chunk size: {chunk_mb}MB (~{chunk_rows:,} rows)")
+        print(f"Total rows processed: {(train_total_rows + test_total_rows):,}")
+        print("Rows saved: N/A")
+        print("Output paths:")
+        for path in [results_csv_path, report_path, model_path]:
+            print(f"  - {path}")
