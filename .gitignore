@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.idea/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Project Outputs
+outputs/
+/IDS2018
+# Model Files
+*.pkl
+*.joblib
+
+# OS
+.DS_Store
+Thumbs.db

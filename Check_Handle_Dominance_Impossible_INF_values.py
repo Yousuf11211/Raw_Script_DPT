@@ -14,7 +14,7 @@ import numpy as np
 from collections import Counter, defaultdict
 
 # --- GLOBAL CONFIGURATION VARIABLES ---
-INPUT_FOLDER = "Training_isolation_model"
+INPUT_FOLDER = "IDS2018"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
@@ -117,7 +117,7 @@ def estimate_rows_per_chunk(file_path, chunk_mb, sample_rows=2000, default_rows=
 
 def prompt_for_max_rows():
     while True:
-        response = input("Limit rows to save? (y/n): ").strip().lower()
+        response = input("Limit rows to save? (y/n): ")).strip().lower())
         if response in ["y", "yes"]:
             while True:
                 value = input("Enter max rows: ").strip()
@@ -601,6 +601,9 @@ def main():
     for i, file_path in enumerate(csv_files, 1):
         print(f"  {i}: {os.path.basename(file_path)}")
     print("-----------------------")
+
+    # Ensure variable exists to avoid static-analysis warnings when analyzing the file
+    files_to_process = []
 
     while True:
         file_choice = input("Enter the numbers of files to process (e.g., 1,3,5), or type 'all': ").strip().lower()
