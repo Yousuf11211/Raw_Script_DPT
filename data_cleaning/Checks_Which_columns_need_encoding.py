@@ -9,9 +9,22 @@
 # - Report counts of valid/invalid rows by label.
 
 import os
+import sys
+import argparse
+
+# Allow running this script from any working directory.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 import pandas as pd
 import numpy as np
 from collections import Counter
+
+from config.global_config import DEFAULT_CHUNK_SIZE_MB, DEFAULT_MAX_OUTPUT_ROWS
+from utils.chunk_utils import compute_chunk_plan, format_progress, print_chunk_plan
+from utils.engine_utils import select_engine
+from utils.path_utils import resolve_input_path, resolve_output_path
 
 # --- Configuration ---
 INPUT_FOLDER = "Downscale_Csv_2018"
@@ -125,48 +138,83 @@ def build_invalid_mask(df):
     return delta_invalid & handshake_invalid
 
 
-# --- Main ---
+_NO_INTERACTIVE = False
 
-def main():
-    gpu_available, _ = detect_gpu()
-    device_choice = prompt_for_device(gpu_available)
-    if device_choice == "gpu":
-        print("GPU selected, but this script uses CPU-based pandas. Using CPU.")
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description="Identify rows with invalid handshake strings and optionally remove them (streaming-safe)."
+    )
+    p.add_argument("--input", default=INPUT_FOLDER, help="Input folder containing CSVs")
+    p.add_argument("--output-dir", default=None, help="Base output directory")
+    p.add_argument("--chunk-size-mb", type=int, default=DEFAULT_CHUNK_SIZE_MB, help="Chunk size in MB")
+    p.add_argument("--max-output-rows", type=int, default=DEFAULT_MAX_OUTPUT_ROWS, help="Max rows to write")
+    p.add_argument("--engine", default="pandas", choices=["pandas", "dask", "dask-gpu"], help="Execution engine")
+    p.add_argument("--use-gpu", action="store_true", help="Force GPU (or fail)")
+    p.add_argument("--no-gpu", action="store_true", help="Force CPU")
+    p.add_argument("--no-interactive", action="store_true", help="Disable interactive prompts")
+    p.add_argument("--delete-invalid", action="store_true", help="Delete invalid rows (non-interactive)")
+    return p
+
+
+def main(argv: list[str] | None = None):
+    global _NO_INTERACTIVE
+    args = build_arg_parser().parse_args(argv)
+    _NO_INTERACTIVE = args.no_interactive
+
+    selection = select_engine(engine=args.engine, use_gpu_flag=args.use_gpu, no_gpu_flag=args.no_gpu)
+    if selection.engine != "pandas":
+        print(f"[info] --engine {selection.engine} requested; this script currently runs in pandas mode.")
+    if selection.use_gpu:
+        print("[info] GPU was approved, but this script uses CPU-based pandas. Using CPU.")
     device_used = "cpu"
 
-    if not os.path.isdir(INPUT_FOLDER):
-        print(f"ERROR: Input folder not found: {INPUT_FOLDER}")
+    input_folder = resolve_input_path(args.input)
+    base_output_dir = resolve_output_path(args.output_dir)
+    output_folder = os.path.join(base_output_dir, "Checks_Which_columns_need_encoding")
+
+    if not os.path.isdir(input_folder):
+        print(f"ERROR: Input folder not found: {input_folder}")
         return
 
-    files = [f for f in os.listdir(INPUT_FOLDER) if f.endswith(".csv")]
+    files = [f for f in os.listdir(input_folder) if f.endswith(".csv")]
     if not files:
         print("No CSV files found in the input folder.")
         return
 
-    chunk_mb = prompt_for_chunk_size_mb()
-    chunk_rows = estimate_rows_per_chunk(os.path.join(INPUT_FOLDER, files[0]), chunk_mb)
+    chunk_mb = int(args.chunk_size_mb)
+    first_path = os.path.join(input_folder, files[0])
+    plan0 = compute_chunk_plan(first_path, chunk_mb)
+    print_chunk_plan(plan0)
+
+    chunk_rows = estimate_rows_per_chunk(first_path, chunk_mb)
     print(f"Using chunk size: {chunk_mb}MB (~{chunk_rows:,} rows per chunk)")
 
-    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+    os.makedirs(output_folder, exist_ok=True)
 
     total_rows_processed = 0
     total_rows_saved = 0
     output_paths = []
 
     for file in files:
-        csv_file = os.path.join(INPUT_FOLDER, file)
+        csv_file = os.path.join(input_folder, file)
         base_name, ext = os.path.splitext(file)
-        output_csv = make_unique_path(os.path.join(OUTPUT_FOLDER, f"{base_name}_cleaned{ext}"))
+        output_csv = make_unique_path(os.path.join(output_folder, f"{base_name}_cleaned{ext}"))
 
         print(f"\nScanning file: {csv_file}...")
+
+        file_plan = compute_chunk_plan(csv_file, chunk_mb)
+        print_chunk_plan(file_plan)
 
         both_valid_counter = Counter()
         both_invalid_counter = Counter()
         rows_to_remove = 0
         rows_processed = 0
 
-        # --- Phase 1: Scan and summarize ---
-        for chunk in pd.read_csv(csv_file, chunksize=chunk_rows, low_memory=False, usecols=COLUMNS_TO_CHECK):
+        for chunk_idx, chunk in enumerate(
+            pd.read_csv(csv_file, chunksize=chunk_rows, low_memory=False, usecols=COLUMNS_TO_CHECK), 1
+        ):
+            print(format_progress(chunk_idx, file_plan.total_chunks))
             rows_processed += len(chunk)
             total_rows_processed += len(chunk)
 
@@ -194,16 +242,22 @@ def main():
         for lbl, cnt in both_invalid_counter.items():
             print(f"  Label '{lbl}': {cnt}")
 
-        delete_confirm = input(
-            f"\nDo you want to delete the {rows_to_remove} rows with invalid handshakes in '{file}'? (yes/no): ").lower()
+        if _NO_INTERACTIVE:
+            delete_confirm = args.delete_invalid
+            print(f"Delete invalid rows? [auto: {'yes' if delete_confirm else 'no'}]")
+            max_rows = int(args.max_output_rows) if args.max_output_rows is not None else None
+        else:
+            delete_confirm_raw = input(
+                f"\nDo you want to delete the {rows_to_remove} rows with invalid handshakes in '{file}'? (yes/no): ").lower()
+            delete_confirm = delete_confirm_raw in {'yes', 'y'}
+            max_rows = prompt_for_max_rows() if delete_confirm else None
 
-        if delete_confirm in ['yes', 'y']:
-            max_rows = prompt_for_max_rows()
+        if delete_confirm:
             print("\nDeleting invalid rows and creating new CSV...")
             is_first_chunk = True
             rows_written = 0
-
-            for chunk in pd.read_csv(csv_file, chunksize=chunk_rows, low_memory=False):
+            for chunk_idx, chunk in enumerate(pd.read_csv(csv_file, chunksize=chunk_rows, low_memory=False), 1):
+                print(format_progress(chunk_idx, file_plan.total_chunks))
                 if not all(col in chunk.columns for col in COLUMNS_TO_CHECK):
                     print("  Missing required columns during write. Skipping.")
                     break

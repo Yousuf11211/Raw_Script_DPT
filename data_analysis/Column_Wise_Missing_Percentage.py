@@ -2,14 +2,28 @@
 # - Added GPU detection/device prompt, chunk size prompt with row estimation, and streaming analysis.
 # - Standardized outputs under ./outputs/Column_Wise_Missing_Percentage.
 # - Added final summary with output path.
+# - Added CLI args, engine flags, chunk plan + progress for repo consistency.
 #
 # Purpose:
 # - Report missing and infinite values per column across CSV files.
 # - Optionally save per-file reports to disk.
 
 import os
+import sys
+import argparse
+
+# Allow running this script from any working directory.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 import pandas as pd
 import numpy as np
+
+from config.global_config import DEFAULT_CHUNK_SIZE_MB
+from utils.chunk_utils import compute_chunk_plan, format_progress, print_chunk_plan
+from utils.engine_utils import select_engine
+from utils.path_utils import resolve_input_path, resolve_output_path
 
 # Main folder with all raw datasets
 MAIN_FOLDER = "Attacks_Removed_Constant"
@@ -17,6 +31,9 @@ MAIN_FOLDER = "Attacks_Removed_Constant"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
 OUTPUT_FOLDER = os.path.join(OUTPUT_ROOT, "Column_Wise_Missing_Percentage")
+
+# Global flag for non-interactive mode
+_NO_INTERACTIVE = False
 
 
 def detect_gpu():
@@ -95,22 +112,55 @@ def make_unique_path(path):
         counter += 1
 
 
-def main():
-    gpu_available, _ = detect_gpu()
-    device_choice = prompt_for_device(gpu_available)
-    if device_choice == "gpu":
-        print("GPU selected, but this script uses CPU-based pandas. Using CPU.")
+def build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description="Report missing and infinite values per column across CSV files."
+    )
+    p.add_argument("--input", default=MAIN_FOLDER, help="Input folder (abs or repo-root-relative)")
+    p.add_argument("--output-dir", default=None, help="Base output directory")
+    p.add_argument("--chunk-size-mb", type=int, default=DEFAULT_CHUNK_SIZE_MB, help="Chunk size in MB")
+    p.add_argument("--engine", default="pandas", choices=["pandas", "dask", "dask-gpu"], help="Execution engine")
+    p.add_argument("--use-gpu", action="store_true", help="Force GPU (or fail)")
+    p.add_argument("--no-gpu", action="store_true", help="Force CPU")
+    p.add_argument("--no-interactive", action="store_true", help="Disable interactive prompts")
+    p.add_argument("--save-reports", action="store_true", help="Save reports to files (non-interactive)")
+    return p
+
+
+def main(argv: list[str] | None = None):
+    global _NO_INTERACTIVE
+    args = build_arg_parser().parse_args(argv)
+    _NO_INTERACTIVE = args.no_interactive
+
+    # Engine selection
+    selection = select_engine(engine=args.engine, use_gpu_flag=args.use_gpu, no_gpu_flag=args.no_gpu)
+    if selection.engine != "pandas":
+        print(f"[info] --engine {selection.engine} requested; this script currently runs in pandas mode.")
     device_used = "cpu"
 
-    if not os.path.isdir(MAIN_FOLDER):
-        print(f"ERROR: Folder not found: {MAIN_FOLDER}")
+    # Resolve paths
+    input_folder = resolve_input_path(args.input)
+    base_output_dir = resolve_output_path(args.output_dir)
+    output_folder = os.path.join(base_output_dir, "Column_Wise_Missing_Percentage")
+
+    if not os.path.isdir(input_folder):
+        print(f"ERROR: Folder not found: {input_folder}")
         return
 
-    save_reports = input("Do you want to save reports to files? (y/n): ").strip().lower() == "y"
-    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+    # Interactive or CLI save_reports
+    if _NO_INTERACTIVE:
+        save_reports = args.save_reports
+    else:
+        gpu_available, _ = detect_gpu()
+        device_choice = prompt_for_device(gpu_available)
+        if device_choice == "gpu":
+            print("GPU selected, but this script uses CPU-based pandas. Using CPU.")
+        save_reports = input("Do you want to save reports to files? (y/n): ").strip().lower() == "y"
+
+    os.makedirs(output_folder, exist_ok=True)
 
     csv_files = []
-    for root, _, files in os.walk(MAIN_FOLDER):
+    for root, _, files in os.walk(input_folder):
         for file in files:
             if file.endswith(".csv"):
                 csv_files.append(os.path.join(root, file))
@@ -119,7 +169,12 @@ def main():
         print("No CSV files found.")
         return
 
-    chunk_mb = prompt_for_chunk_size_mb()
+    chunk_mb = int(args.chunk_size_mb)
+
+    # Mandatory chunk plan
+    plan0 = compute_chunk_plan(csv_files[0], chunk_mb)
+    print_chunk_plan(plan0)
+
     chunk_rows = estimate_rows_per_chunk(csv_files[0], chunk_mb)
     print(f"Using chunk size: {chunk_mb}MB (~{chunk_rows:,} rows per chunk)")
 
@@ -129,13 +184,20 @@ def main():
     for file_path in csv_files:
         print(f"\nScanning {file_path} ...")
 
+        # Per-file chunk plan
+        file_plan = compute_chunk_plan(file_path, chunk_mb)
+        print_chunk_plan(file_plan)
+
         missing_counts = None
         inf_counts = None
         total_rows = 0
         total_cols = 0
 
         try:
-            for chunk in pd.read_csv(file_path, chunksize=chunk_rows, low_memory=False):
+            for chunk_idx, chunk in enumerate(pd.read_csv(file_path, chunksize=chunk_rows, low_memory=False), 1):
+                # Standard progress
+                print(format_progress(chunk_idx, file_plan.total_chunks))
+
                 total_rows += len(chunk)
                 total_cols = len(chunk.columns)
                 if missing_counts is None:
@@ -144,8 +206,6 @@ def main():
                 else:
                     missing_counts = missing_counts.add(chunk.isna().sum(), fill_value=0)
                     inf_counts = inf_counts.add(chunk.isin([np.inf, -np.inf]).sum(), fill_value=0)
-                if total_rows % (chunk_rows * 5) == 0:
-                    print(f"  Processed {total_rows:,} rows...")
         except Exception as e:
             print(f"Error reading {file_path}: {e}")
             continue
@@ -189,8 +249,8 @@ def main():
         print("\n".join(report_lines))
 
         if save_reports:
-            rel_path = os.path.relpath(os.path.dirname(file_path), MAIN_FOLDER)
-            report_subfolder = os.path.join(OUTPUT_FOLDER, rel_path)
+            rel_path = os.path.relpath(os.path.dirname(file_path), input_folder)
+            report_subfolder = os.path.join(output_folder, rel_path)
             os.makedirs(report_subfolder, exist_ok=True)
 
             output_file = make_unique_path(

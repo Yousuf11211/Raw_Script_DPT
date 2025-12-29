@@ -9,13 +9,27 @@
 # - Compare dominance across two files and optionally remove common dominant columns.
 
 import os
+import sys
+import argparse
+
+# Allow running this script from any working directory.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 import pandas as pd
 import numpy as np
 from collections import Counter, defaultdict
 
+from config.global_config import DEFAULT_CHUNK_SIZE_MB, DEFAULT_MAX_OUTPUT_ROWS
+from utils.chunk_utils import compute_chunk_plan, format_progress, print_chunk_plan
+from utils.engine_utils import select_engine
+from utils.path_utils import resolve_input_path, resolve_output_path
+
 # --- 1. GLOBAL CONFIGURATION ---
 INPUT_FOLDER = "Normalized_SET"
 
+# Legacy output location (kept for compatibility if --output-dir is not given)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
 OUTPUT_FOLDER = os.path.join(OUTPUT_ROOT, "Normalized_Constant_Handled")
@@ -51,6 +65,10 @@ SUMMARY = {
     "rows_saved": 0,
     "output_paths": [],
 }
+
+# Global flag set by main() when --no-interactive is passed.
+# Used by helper functions to skip prompts and use sensible defaults.
+_NO_INTERACTIVE = False
 
 
 # ============================================================================== 
@@ -159,7 +177,11 @@ def record_output(path, rows_saved=0, rows_processed=0):
     SUMMARY["total_rows_processed"] += int(rows_processed)
 
 
-def get_user_yes_no(prompt):
+def get_user_yes_no(prompt, default=True):
+    """Prompt user for yes/no. In non-interactive mode, returns `default`."""
+    if _NO_INTERACTIVE:
+        print(f"{prompt} (y/n): [auto: {'y' if default else 'n'}]")
+        return default
     while True:
         response = input(f"{prompt} (y/n): ").lower().strip()
         if response in ['y', 'yes']:
@@ -500,21 +522,96 @@ def run_inf_imputation(file_path):
 # TASK 4: REMOVE CONSTANT OR LOW-VARIANCE COLUMNS
 # ============================================================================== 
 
-def run_variance_analysis(file_path):
+# Memory-safe unique tracking: store up to a small cap and mark columns as "too many uniques".
+class _CappedUniques:
+    __slots__ = ("cap", "values", "overflow")
+
+    def __init__(self, cap: int):
+        self.cap = int(cap)
+        self.values: set[str] = set()
+        self.overflow = False
+
+    def add_many(self, items) -> None:
+        if self.overflow:
+            return
+        for x in items:
+            if x is None or (isinstance(x, float) and np.isnan(x)):
+                continue
+            self.values.add(str(x))
+            if len(self.values) > self.cap:
+                self.overflow = True
+                # Free memory aggressively once we've exceeded the cap.
+                self.values.clear()
+                return
+
+    def count(self) -> int:
+        return self.cap + 1 if self.overflow else len(self.values)
+
+
+def run_variance_analysis(file_path, *, chunk_mb: int | None = None):
     print(f"\n--- [Task 4] Analyzing for Low-Variance Columns: {os.path.basename(file_path)} ---")
     rows_processed = 0
     try:
-        print("  Analyzing columns... (this may take a moment for large files)")
-        col_unique_values = defaultdict(set)
-        for chunk in pd.read_csv(file_path, chunksize=CHUNK_ROWS, dtype=str, low_memory=False):
+        print("  Analyzing columns... (memory-safe; stops tracking uniques once a cap is exceeded)")
+
+        # In non-interactive mode, default to checking both constant and low-variance columns.
+        want_constant = get_user_yes_no("  Do you want to find constant columns (1 unique value)?", default=True)
+        want_low_var = get_user_yes_no("  Do you want to find low-variance columns (2+ unique values)?", default=True)
+        if not want_constant and not want_low_var:
+            print("  No variance checks selected.")
+            record_output(None, rows_processed=0)
+            return
+
+        threshold = None
+        if want_low_var:
+            if _NO_INTERACTIVE:
+                # Default threshold for non-interactive mode.
+                threshold = 3
+                print(f"    Using default threshold: {threshold} unique values")
+            else:
+                while True:
+                    try:
+                        threshold = int(input("    Enter the maximum number of unique values (e.g., 3): "))
+                        if threshold < 2:
+                            print("    Please enter an integer >= 2.")
+                            continue
+                        break
+                    except ValueError:
+                        print("    That wasn't a valid number. Please enter an integer.")
+
+        cap = int(threshold) if threshold is not None else 1
+        trackers: dict[str, _CappedUniques] = {}
+
+        # Mandatory chunk plan & progress (use actual chunk_mb if available).
+        file_plan = None
+        if chunk_mb is not None:
+            try:
+                file_plan = compute_chunk_plan(file_path, int(chunk_mb))
+                print_chunk_plan(file_plan)
+            except Exception:
+                file_plan = None
+
+        for chunk_idx, chunk in enumerate(pd.read_csv(file_path, chunksize=CHUNK_ROWS, dtype=str, low_memory=False), 1):
             rows_processed += len(chunk)
+
+            if file_plan is not None:
+                print(format_progress(chunk_idx, file_plan.total_chunks))
+            elif chunk_idx % 5 == 0:
+                print(f"  Processed {rows_processed:,} rows...")
+
             for col in chunk.columns:
-                col_unique_values[col].update(chunk[col].dropna().unique())
+                tr = trackers.get(col)
+                if tr is None:
+                    tr = trackers[col] = _CappedUniques(cap=cap)
+                # Drop NAs and add. This stays bounded.
+                tr.add_many(chunk[col].dropna().tolist())
+
         print("  Analysis complete.")
 
         columns_to_drop = []
-        if get_user_yes_no("  Do you want to find constant columns (1 unique value)?"):
-            constant_cols = {col: list(vals)[0] for col, vals in col_unique_values.items() if len(vals) == 1}
+
+        if want_constant:
+            constant_cols = {col: next(iter(tr.values)) for col, tr in trackers.items() if tr.count() == 1 and not tr.overflow}
             if constant_cols:
                 print("\n  [RESULT] Found Constant Columns:")
                 for col, val in constant_cols.items():
@@ -523,14 +620,12 @@ def run_variance_analysis(file_path):
             else:
                 print("\n  [RESULT] No constant columns were found.")
 
-        if get_user_yes_no("  Do you want to find low-variance columns (2+ unique values)?"):
-            while True:
-                try:
-                    threshold = int(input("    Enter the maximum number of unique values (e.g., 3): "))
-                    break
-                except ValueError:
-                    print("    That wasn't a valid number. Please enter an integer.")
-            low_variance_cols = {col: list(vals) for col, vals in col_unique_values.items() if 2 <= len(vals) <= threshold}
+        if want_low_var and threshold is not None:
+            low_variance_cols = {
+                col: sorted(list(tr.values))
+                for col, tr in trackers.items()
+                if (not tr.overflow) and 2 <= tr.count() <= threshold
+            }
             if low_variance_cols:
                 print(f"\n  [RESULT] Found Low-Variance Columns (up to {threshold} unique values):")
                 for col, vals in low_variance_cols.items():
@@ -704,54 +799,134 @@ def run_interactive_dominance_comparison(file1_path, file2_path):
         print(f"ERROR during dominance comparison: {e}")
 
 
-# ============================================================================== 
+def build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description=(
+            "Analyze dominance, validate data, handle inf values, and detect constant/low-variance columns. "
+            "Designed for large CSVs (streaming)."
+        )
+    )
+    p.add_argument("--input", default=INPUT_FOLDER, help="Input folder (abs or repo-root-relative)")
+    p.add_argument(
+        "--output-dir",
+        default=None,
+        help="Base output directory (abs or repo-root-relative). Defaults to ./outputs",
+    )
+    p.add_argument("--chunk-size-mb", type=int, default=DEFAULT_CHUNK_SIZE_MB, help="Chunk size in MB")
+    p.add_argument("--max-output-rows", type=int, default=DEFAULT_MAX_OUTPUT_ROWS, help="Max rows to write")
+
+    p.add_argument("--engine", default="pandas", choices=["pandas", "dask", "dask-gpu"], help="Execution engine")
+    p.add_argument("--use-gpu", action="store_true", help="Force GPU (or fail)")
+    p.add_argument("--no-gpu", action="store_true", help="Force CPU")
+
+    p.add_argument("--task", choices=["1", "2", "3", "4", "5"], default=None, help="Task to run")
+    p.add_argument(
+        "--files",
+        default=None,
+        help="Comma-separated indices (1-based) or 'all'. Used for tasks 1-4.",
+    )
+    p.add_argument("--no-interactive", action="store_true", help="Disable interactive prompts")
+    return p
+
+
+# ==============================================================================
 # MAIN DRIVER
 # ============================================================================== 
 
-def main():
-    gpu_available, _ = detect_gpu()
-    device_choice = prompt_for_device(gpu_available)
-    if device_choice == "gpu":
-        print("GPU selected, but this script uses CPU-based pandas. Using CPU.")
+def main(argv: list[str] | None = None):
+    args = build_arg_parser().parse_args(argv)
+
+    # Engine selection (forward-compatible). This script currently performs pandas streaming.
+    selection = select_engine(engine=args.engine, use_gpu_flag=args.use_gpu, no_gpu_flag=args.no_gpu)
+    if selection.engine != "pandas":
+        print(f"[info] --engine {selection.engine} requested; this script currently runs in pandas mode for safety.")
+    if selection.use_gpu:
+        print("[info] GPU was approved, but this script uses CPU-based pandas. Using CPU.")
     device_used = "cpu"
 
+    # Resolve paths safely.
+    input_folder = resolve_input_path(args.input)
+    base_output_dir = resolve_output_path(args.output_dir)
+
+    global OUTPUT_FOLDER
+    OUTPUT_FOLDER = os.path.join(base_output_dir, "Normalized_Constant_Handled")
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
     print("--- Data Analysis and Validation Tool ---")
-    print(f"Searching for CSVs in: '{INPUT_FOLDER}'")
-    if not os.path.isdir(INPUT_FOLDER):
-        print(f"Error: Input folder not found at '{INPUT_FOLDER}'")
+    print(f"Searching for CSVs in: '{input_folder}'")
+    if not os.path.isdir(input_folder):
+        print(f"Error: Input folder not found at '{input_folder}'")
         return
 
-    csv_files = sorted([os.path.join(INPUT_FOLDER, f) for f in os.listdir(INPUT_FOLDER) if f.endswith(".csv")])
+    csv_files = sorted([os.path.join(input_folder, f) for f in os.listdir(input_folder) if f.endswith(".csv")])
     if not csv_files:
         print("No CSV files found in the specified directory.")
         return
 
-    chunk_mb = prompt_for_chunk_size_mb()
+    chunk_mb = int(args.chunk_size_mb)
     global CHUNK_ROWS
     CHUNK_ROWS = estimate_rows_per_chunk(csv_files[0], chunk_mb)
+
+    # Mandatory chunk plan pre-calc.
+    plan0 = compute_chunk_plan(csv_files[0], chunk_mb)
+    print_chunk_plan(plan0)
+
     print(f"Using chunk size: {chunk_mb}MB (~{CHUNK_ROWS:,} rows per chunk)")
 
-    print("\nPlease choose a task to perform on the files:")
-    print("  1: Generate Static Dominance Report (.txt file)")
-    print("  2: Validate Data and Remove Invalid Rows")
-    print("  3: Handle Columns with High 'inf' Values")
-    print("  4: Remove Constant or Low-Variance Columns")
-    print("  5: Interactive Dominance COMPARISON (select 2 files)")
-    task_choice = input("Enter your choice (1, 2, 3, 4, or 5): ").strip()
-    if task_choice not in ['1', '2', '3', '4', '5']:
-        print("Invalid choice. Exiting.")
-        return
+    # Set global flag so helper functions skip prompts.
+    global _NO_INTERACTIVE
+    _NO_INTERACTIVE = args.no_interactive
 
-    print("\n--- CSV Files Found ---")
-    for i, file_path in enumerate(csv_files, 1):
-        print(f"  {i}: {os.path.basename(file_path)}")
-    print("-----------------------")
+    # Keep interactive behavior unless --no-interactive.
+    if args.no_interactive:
+        if args.task is None:
+            print("ERROR: --no-interactive requires --task")
+            return
+        task_choice = args.task
+        file_choice = (args.files or "").strip().lower() if task_choice != "5" else None
+        if task_choice != "5" and not file_choice:
+            print("ERROR: --no-interactive for tasks 1-4 requires --files or --files=all")
+            return
+    else:
+        # legacy GPU prompt
+        gpu_available, _ = detect_gpu()
+        device_choice = prompt_for_device(gpu_available)
+        if device_choice == "gpu":
+            print("GPU selected, but this script uses CPU-based pandas. Using CPU.")
+
+        print("\nPlease choose a task to perform on the files:")
+        print("  1: Generate Static Dominance Report (.txt file)")
+        print("  2: Validate Data and Remove Invalid Rows")
+        print("  3: Handle Columns with High 'inf' Values")
+        print("  4: Remove Constant or Low-Variance Columns")
+        print("  5: Interactive Dominance COMPARISON (select 2 files)")
+        task_choice = input("Enter your choice (1, 2, 3, 4, or 5): ").strip()
+        if task_choice not in ['1', '2', '3', '4', '5']:
+            print("Invalid choice. Exiting.")
+            return
+
+        print("\n--- CSV Files Found ---")
+        for i, file_path in enumerate(csv_files, 1):
+            print(f"  {i}: {os.path.basename(file_path)}")
+        print("-----------------------")
+
+        if task_choice == '5':
+            file_choice = None
+        else:
+            file_choice = input("Enter the numbers of files to process (e.g., 1,3,5), or type 'all': ").strip().lower()
+
+    # Wire CLI max-rows into existing prompts for non-interactive runs.
+    if args.no_interactive:
+        def _no_prompt_max_rows():
+            return int(args.max_output_rows) if args.max_output_rows is not None else None
+        globals()['prompt_for_max_rows'] = _no_prompt_max_rows
 
     if task_choice == '5':
         if len(csv_files) < 2:
             print("Error: Task 5 requires at least two CSV files in the input folder.")
+            return
+        if args.no_interactive:
+            print("ERROR: Task 5 is interactive only.")
             return
         try:
             idx1 = int(input("Enter the number of the FIRST file (e.g., your benign set): ")) - 1
@@ -759,30 +934,19 @@ def main():
             if not (0 <= idx1 < len(csv_files) and 0 <= idx2 < len(csv_files) and idx1 != idx2):
                 print("Error: Invalid selection. Please select two different, valid file numbers.")
                 return
-            file1 = csv_files[idx1]
-            file2 = csv_files[idx2]
-            run_interactive_dominance_comparison(file1, file2)
+            run_interactive_dominance_comparison(csv_files[idx1], csv_files[idx2])
         except (ValueError, IndexError):
             print("Invalid input. Please enter valid numbers.")
     else:
-        while True:
-            file_choice = input("Enter the numbers of files to process (e.g., 1,3,5), or type 'all': ").strip().lower()
-            files_to_process = []
-            if file_choice == 'all':
-                files_to_process = csv_files
-                break
-            try:
-                indices = [int(num.strip()) - 1 for num in file_choice.split(',')]
-                valid_indices = [i for i in indices if 0 <= i < len(csv_files)]
-                if len(valid_indices) != len(indices):
-                    print("Warning: Some numbers were out of range.")
-                if not valid_indices:
-                    print("Error: No valid file numbers were entered.")
-                    continue
-                files_to_process = [csv_files[i] for i in valid_indices]
-                break
-            except ValueError:
-                print("Invalid input. Please enter numbers separated by commas or 'all'.")
+        if file_choice == 'all':
+            files_to_process = csv_files
+        else:
+            indices = [int(num.strip()) - 1 for num in file_choice.split(',') if num.strip()]
+            valid_indices = [i for i in indices if 0 <= i < len(csv_files)]
+            if not valid_indices:
+                print("Error: No valid file numbers were entered.")
+                return
+            files_to_process = [csv_files[i] for i in valid_indices]
 
         print(f"\nBeginning processing for {len(files_to_process)} selected file(s)...")
         for file_path in files_to_process:
@@ -793,7 +957,7 @@ def main():
             elif task_choice == '3':
                 run_inf_column_removal(file_path)
             elif task_choice == '4':
-                run_variance_analysis(file_path)
+                run_variance_analysis(file_path, chunk_mb=chunk_mb)
             print("-" * 70)
 
     print("\nAll selected operations are complete.")

@@ -2,6 +2,7 @@
 # - Added GPU detection/device prompt and chunk size prompt with row estimation.
 # - Streamed sampling to cap memory usage, plus optional max-rows limit for outputs.
 # - Standardized outputs under ./outputs/Attack_Balanced with final summary.
+# - Added CLI args, engine flags, chunk plan + progress for repo consistency.
 #
 # Purpose:
 # - Balance class distribution using under/over-sampling techniques.
@@ -9,11 +10,24 @@
 # - Report label distributions before and after balancing.
 
 import os
+import sys
+import argparse
+
+# Allow running this script from any working directory.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 import pandas as pd
 from collections import Counter
 from sklearn.preprocessing import LabelEncoder
 from imblearn.under_sampling import RandomUnderSampler
 from imblearn.over_sampling import SMOTE, BorderlineSMOTE, ADASYN
+
+from config.global_config import DEFAULT_CHUNK_SIZE_MB, DEFAULT_MAX_OUTPUT_ROWS
+from utils.chunk_utils import compute_chunk_plan, format_progress, print_chunk_plan
+from utils.engine_utils import select_engine
+from utils.path_utils import resolve_input_path, resolve_output_path
 
 # ===== CONFIGURATION =====
 INPUT_FOLDER = "Training_2018"
@@ -23,6 +37,10 @@ OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
 OUTPUT_FOLDER = os.path.join(OUTPUT_ROOT, "Attack_Balanced")
 
 MAX_SAMPLE_ROWS = 500_000
+
+
+# Global flag for non-interactive mode
+_NO_INTERACTIVE = False
 
 
 # ===== HELPERS =====

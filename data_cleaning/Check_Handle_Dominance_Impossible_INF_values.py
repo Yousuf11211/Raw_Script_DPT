@@ -9,9 +9,21 @@
 # - Provide helper functions for dominance analysis and column deletion.
 
 import os
+import sys
+
+# Allow running this script from any working directory.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 import pandas as pd
 import numpy as np
 from collections import Counter, defaultdict
+import argparse
+
+from config.global_config import DEFAULT_CHUNK_SIZE_MB, DEFAULT_MAX_OUTPUT_ROWS
+from utils.path_utils import resolve_input_path, resolve_output_path
+from utils.gpu_utils import gpu_available as dask_cuda_gpu_available
 
 # --- GLOBAL CONFIGURATION VARIABLES ---
 INPUT_FOLDER = "IDS2018"
@@ -52,6 +64,16 @@ SUMMARY = {
 # ============================================================================== 
 
 def detect_gpu():
+    """Best-effort GPU detection used for legacy prompts.
+
+    We prefer a lightweight Dask-CUDA check (no heavy framework imports).
+    If that fails, we fall back to torch/tensorflow checks.
+    """
+    if dask_cuda_gpu_available():
+        print("GPU detected.")
+        return True, "dask_cuda"
+
+    # --- legacy fallbacks ---
     gpu_available = False
     library = None
     try:
@@ -117,7 +139,7 @@ def estimate_rows_per_chunk(file_path, chunk_mb, sample_rows=2000, default_rows=
 
 def prompt_for_max_rows():
     while True:
-        response = input("Limit rows to save? (y/n): ")).strip().lower())
+        response = input("Limit rows to save? (y/n): ").strip().lower()
         if response in ["y", "yes"]:
             while True:
                 value = input("Enter max rows: ").strip()
@@ -153,7 +175,55 @@ def record_output(path, rows_saved=0, rows_processed=0):
     SUMMARY["total_rows_processed"] += int(rows_processed)
 
 
-# ============================================================================== 
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Dominance reporting + data validation + inf handling for CSV files in a folder. "
+            "Supports interactive selection, but also accepts CLI defaults for automation."
+        )
+    )
+    parser.add_argument(
+        "--input",
+        default=INPUT_FOLDER,
+        help="Input folder (absolute or repo-root-relative).",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Base output directory (absolute or repo-root-relative). Defaults to ./outputs.",
+    )
+    parser.add_argument(
+        "--chunk-size-mb",
+        type=int,
+        default=DEFAULT_CHUNK_SIZE_MB,
+        help=f"Chunk size in MB (default: {DEFAULT_CHUNK_SIZE_MB}).",
+    )
+    parser.add_argument(
+        "--max-output-rows",
+        type=int,
+        default=DEFAULT_MAX_OUTPUT_ROWS,
+        help=f"Max rows to write for any produced CSV (default: {DEFAULT_MAX_OUTPUT_ROWS}).",
+    )
+    parser.add_argument(
+        "--task",
+        choices=["1", "2", "3"],
+        default=None,
+        help="Task to run: 1=dominance report, 2=validate/remove invalid rows, 3=inf handling.",
+    )
+    parser.add_argument(
+        "--files",
+        default=None,
+        help="Comma-separated file indices to process (e.g. '1,3'), or 'all'. If omitted, prompt.",
+    )
+    parser.add_argument(
+        "--no-interactive",
+        action="store_true",
+        help="Disable interactive prompts; requires --task and --files (or --files=all).",
+    )
+    return parser
+
+
+# ==============================================================================
 # TASK 1: DOMINANCE REPORT LOGIC
 # ============================================================================== 
 
@@ -565,63 +635,80 @@ def delete_columns_for_web(file_path, output_path, columns_to_delete):
 # MAIN
 # ============================================================================== 
 
-def main():
+def main(argv: list[str] | None = None):
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+
     gpu_available, _ = detect_gpu()
     device_choice = prompt_for_device(gpu_available)
     if device_choice == "gpu":
         print("GPU selected, but this script uses CPU-based pandas. Using CPU.")
     device_used = "cpu"
 
+    input_folder = resolve_input_path(args.input)
+    base_output_dir = resolve_output_path(args.output_dir)
+
+    # Keep original subfolder name to avoid behavior change
+    global OUTPUT_FOLDER
+    OUTPUT_FOLDER = os.path.join(base_output_dir, "Training_isolation_model")
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-    if not os.path.isdir(INPUT_FOLDER):
-        print(f"Error: Input folder not found at '{INPUT_FOLDER}'")
+    if not os.path.isdir(input_folder):
+        print(f"Error: Input folder not found at '{input_folder}'")
         return
 
-    csv_files = sorted([os.path.join(INPUT_FOLDER, f) for f in os.listdir(INPUT_FOLDER) if f.endswith(".csv")])
+    csv_files = sorted([os.path.join(input_folder, f) for f in os.listdir(input_folder) if f.endswith(".csv")])
     if not csv_files:
         print("No CSV files found in the specified directory.")
         return
 
-    chunk_mb = prompt_for_chunk_size_mb()
+    chunk_mb = int(args.chunk_size_mb)
     global CHUNK_ROWS
     CHUNK_ROWS = estimate_rows_per_chunk(csv_files[0], chunk_mb)
     print(f"Using chunk size: {chunk_mb}MB (~{CHUNK_ROWS:,} rows per chunk)")
 
-    print("\nPlease choose a task to perform on the files:")
-    print("  1: Generate Dominance Report")
-    print("  2: Validate Data and Remove Invalid Rows")
-    print("  3: Handle Columns with High 'inf' Values")
-    task_choice = input("Enter your choice (1, 2, or 3): ").strip()
-    if task_choice not in ['1', '2', '3']:
-        print("Invalid choice. Exiting.")
-        return
+    if args.no_interactive:
+        if args.task is None or args.files is None:
+            print("ERROR: --no-interactive requires --task and --files (or --files=all).")
+            return
+        task_choice = args.task
+        file_choice = args.files.strip().lower()
+    else:
+        print("\nPlease choose a task to perform on the files:")
+        print("  1: Generate Dominance Report")
+        print("  2: Validate Data and Remove Invalid Rows")
+        print("  3: Handle Columns with High 'inf' Values")
+        task_choice = input("Enter your choice (1, 2, or 3): ").strip()
+        if task_choice not in ['1', '2', '3']:
+            print("Invalid choice. Exiting.")
+            return
 
-    print("\n--- CSV Files Found ---")
-    for i, file_path in enumerate(csv_files, 1):
-        print(f"  {i}: {os.path.basename(file_path)}")
-    print("-----------------------")
-
-    # Ensure variable exists to avoid static-analysis warnings when analyzing the file
-    files_to_process = []
-
-    while True:
+        print("\n--- CSV Files Found ---")
+        for i, file_path in enumerate(csv_files, 1):
+            print(f"  {i}: {os.path.basename(file_path)}")
+        print("-----------------------")
         file_choice = input("Enter the numbers of files to process (e.g., 1,3,5), or type 'all': ").strip().lower()
-        if file_choice == 'all':
-            files_to_process = csv_files
-            break
+
+    if file_choice == 'all':
+        files_to_process = csv_files
+    else:
         try:
-            indices = [int(num.strip()) - 1 for num in file_choice.split(',')]
+            indices = [int(num.strip()) - 1 for num in file_choice.split(',') if num.strip()]
             valid_indices = [i for i in indices if 0 <= i < len(csv_files)]
-            if len(valid_indices) != len(indices):
-                print("Warning: Some numbers were out of range.")
             if not valid_indices:
                 print("Error: No valid file numbers were entered.")
-                continue
+                return
             files_to_process = [csv_files[i] for i in valid_indices]
-            break
         except ValueError:
-            print("Invalid input. Please enter numbers separated by commas or 'all'.")
+            print("Invalid file list.")
+            return
+
+    # Wire CLI max-rows into existing prompts by short-circuiting prompt usage
+    # (we keep interactive behavior by default)
+    if args.no_interactive:
+        def _no_prompt_max_rows():
+            return int(args.max_output_rows) if args.max_output_rows is not None else None
+        globals()['prompt_for_max_rows'] = _no_prompt_max_rows
 
     for file_path in files_to_process:
         if task_choice == '1':

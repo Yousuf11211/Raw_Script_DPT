@@ -9,9 +9,23 @@
 # - Save a report of problematic columns.
 
 import os
+import sys
+import argparse
+
+# Allow running this script from any working directory.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 import pandas as pd
 from collections import Counter, defaultdict
 import math
+
+from config.global_config import DEFAULT_CHUNK_SIZE_MB
+from utils.chunk_utils import compute_chunk_plan, format_progress, print_chunk_plan
+from utils.engine_utils import select_engine
+from utils.path_utils import resolve_input_path, resolve_output_path
+
 
 # CSV file path
 CSV_FILE = "../2017/final_testing_1.csv"
@@ -19,6 +33,8 @@ CSV_FILE = "../2017/final_testing_1.csv"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
 OUTPUT_FOLDER = os.path.join(OUTPUT_ROOT, "Check_which_column_has_Mixed_Types")
+
+_NO_INTERACTIVE = False
 
 
 def detect_gpu():
@@ -113,30 +129,56 @@ def classify_value(val):
         return "string"
 
 
-def main():
-    gpu_available, _ = detect_gpu()
-    device_choice = prompt_for_device(gpu_available)
-    if device_choice == "gpu":
-        print("GPU selected, but this script uses CPU-based pandas. Using CPU.")
+def build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="Identify columns with mixed data types (streaming-safe).")
+    p.add_argument("--input", default=CSV_FILE, help="Input CSV path")
+    p.add_argument("--output-dir", default=None, help="Base output directory")
+    p.add_argument("--chunk-size-mb", type=int, default=DEFAULT_CHUNK_SIZE_MB, help="Chunk size in MB")
+    p.add_argument("--engine", default="pandas", choices=["pandas", "dask", "dask-gpu"], help="Execution engine")
+    p.add_argument("--use-gpu", action="store_true", help="Force GPU (or fail)")
+    p.add_argument("--no-gpu", action="store_true", help="Force CPU")
+    p.add_argument("--no-interactive", action="store_true", help="Disable interactive prompts")
+    return p
+
+
+# Replace main() with CLI-aware main(argv)
+
+def main(argv: list[str] | None = None):
+    global _NO_INTERACTIVE
+    args = build_arg_parser().parse_args(argv)
+    _NO_INTERACTIVE = args.no_interactive
+
+    selection = select_engine(engine=args.engine, use_gpu_flag=args.use_gpu, no_gpu_flag=args.no_gpu)
+    if selection.engine != "pandas":
+        print(f"[info] --engine {selection.engine} requested; this script currently runs in pandas mode.")
+    if selection.use_gpu:
+        print("[info] GPU was approved, but this script uses CPU-based pandas. Using CPU.")
     device_used = "cpu"
 
-    if not os.path.exists(CSV_FILE):
-        print(f"ERROR: File not found: {CSV_FILE}")
+    input_csv = resolve_input_path(args.input)
+    base_output_dir = resolve_output_path(args.output_dir)
+    output_folder = os.path.join(base_output_dir, "Check_which_column_has_Mixed_Types")
+
+    if not os.path.exists(input_csv):
+        print(f"ERROR: File not found: {input_csv}")
         return
 
-    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+    os.makedirs(output_folder, exist_ok=True)
 
-    chunk_mb = prompt_for_chunk_size_mb()
-    chunk_rows = estimate_rows_per_chunk(CSV_FILE, chunk_mb)
+    chunk_mb = int(args.chunk_size_mb)
+    plan0 = compute_chunk_plan(input_csv, chunk_mb)
+    print_chunk_plan(plan0)
+
+    chunk_rows = estimate_rows_per_chunk(input_csv, chunk_mb)
     print(f"Using chunk size: {chunk_mb}MB (~{chunk_rows:,} rows per chunk)")
 
     col_type_counts = defaultdict(Counter)
     print("Starting to process the CSV file to find critical errors...")
 
     total_rows_processed = 0
-    for i, chunk in enumerate(pd.read_csv(CSV_FILE, chunksize=chunk_rows, low_memory=False, dtype=str)):
+    for chunk_idx, chunk in enumerate(pd.read_csv(input_csv, chunksize=chunk_rows, low_memory=False, dtype=str), 1):
         total_rows_processed += len(chunk)
-        print(f"Processing chunk {i + 1} ({len(chunk):,} rows)...")
+        print(format_progress(chunk_idx, plan0.total_chunks))
         for col in chunk.columns:
             col_type_counts[col].update(chunk[col].map(classify_value))
 
@@ -155,7 +197,7 @@ def main():
 
     print("\n".join(report_lines))
 
-    report_path = make_unique_path(os.path.join(OUTPUT_FOLDER, "mixed_type_report.txt"))
+    report_path = make_unique_path(os.path.join(output_folder, "mixed_type_report.txt"))
     with open(report_path, "w", encoding="utf-8") as f:
         f.write("\n".join(report_lines))
 

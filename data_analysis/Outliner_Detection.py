@@ -8,14 +8,27 @@
 # - Save per-column plots (if matplotlib is available).
 # - Report outlier counts by column.
 
-import pandas as pd
 import os
+import sys
+import argparse
+
+# Allow running this script from any working directory.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+import pandas as pd
 
 try:
     import matplotlib.pyplot as plt
     HAS_PLOT = True
 except ImportError:
     HAS_PLOT = False
+
+from config.global_config import DEFAULT_CHUNK_SIZE_MB, DEFAULT_MAX_OUTPUT_ROWS
+from utils.chunk_utils import compute_chunk_plan, print_chunk_plan
+from utils.engine_utils import select_engine
+from utils.path_utils import resolve_input_path, resolve_output_path
 
 FOLDER = "Training_2018"
 FILENAME = "training_2_validated.csv"
@@ -138,29 +151,51 @@ def find_iqr_outliers(df, column):
     return mask, lower, upper
 
 
-def main():
-    gpu_available, _ = detect_gpu()
-    device_choice = prompt_for_device(gpu_available)
-    if device_choice == "gpu":
-        print("GPU selected, but this script uses CPU-based pandas. Using CPU.")
+def build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="Detect IQR-based outliers on a sampled subset of a CSV.")
+    p.add_argument("--input", default=os.path.join(FOLDER, FILENAME), help="Input CSV file")
+    p.add_argument("--output-dir", default=None, help="Base output directory")
+    p.add_argument("--chunk-size-mb", type=int, default=DEFAULT_CHUNK_SIZE_MB, help="Chunk size in MB")
+    p.add_argument("--max-sample-rows", type=int, default=min(MAX_SAMPLE_ROWS, DEFAULT_MAX_OUTPUT_ROWS), help="Max rows to sample")
+    p.add_argument("--engine", default="pandas", choices=["pandas", "dask", "dask-gpu"], help="Execution engine")
+    p.add_argument("--use-gpu", action="store_true", help="Force GPU (or fail)")
+    p.add_argument("--no-gpu", action="store_true", help="Force CPU")
+    p.add_argument("--no-interactive", action="store_true", help="Disable interactive prompts")
+    return p
+
+
+def main(argv: list[str] | None = None):
+    args = build_arg_parser().parse_args(argv)
+
+    selection = select_engine(engine=args.engine, use_gpu_flag=args.use_gpu, no_gpu_flag=args.no_gpu)
+    if selection.engine != "pandas":
+        print(f"[info] --engine {selection.engine} requested; this script currently runs in pandas mode.")
+    if selection.use_gpu:
+        print("[info] GPU was approved, but this script uses CPU-based pandas. Using CPU.")
     device_used = "cpu"
 
-    file_path = os.path.join(FOLDER, FILENAME)
+    file_path = resolve_input_path(args.input)
+    base_output_dir = resolve_output_path(args.output_dir)
+    out_folder = os.path.join(base_output_dir, "Outliner_Detection")
+
     if not os.path.exists(file_path):
         print(f"Error: File not found at {file_path}")
         return
 
-    chunk_mb = prompt_for_chunk_size_mb()
+    chunk_mb = int(args.chunk_size_mb)
+    plan0 = compute_chunk_plan(file_path, chunk_mb)
+    print_chunk_plan(plan0)
+
     chunk_rows = estimate_rows_per_chunk(file_path, chunk_mb)
     print(f"Using chunk size: {chunk_mb}MB (~{chunk_rows:,} rows per chunk)")
 
     print("Loading sampled data...")
-    df, total_rows, sampled_rows = load_sampled_data(file_path, chunk_rows, MAX_SAMPLE_ROWS)
+    df, total_rows, sampled_rows = load_sampled_data(file_path, chunk_rows, int(args.max_sample_rows))
     if df.empty:
         print("No data loaded.")
         return
 
-    os.makedirs(OUT_FOLDER, exist_ok=True)
+    os.makedirs(out_folder, exist_ok=True)
     numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
     if not numeric_cols:
         print("No numeric columns found for outlier detection.")
@@ -209,7 +244,7 @@ def main():
             plt.legend(loc='upper right')
             plt.tight_layout()
 
-            out_plot = os.path.join(OUT_FOLDER, f"{col}_plot.png")
+            out_plot = os.path.join(out_folder, f"{col}_plot.png")
             plt.savefig(out_plot)
             plt.close()
             print(f"  Saved plot to: {out_plot}")
@@ -217,7 +252,7 @@ def main():
             print("  Plot skipped (matplotlib not installed).")
 
     print("\n===========================")
-    print(f"\nPlots saved in folder: {OUT_FOLDER}")
+    print(f"\nPlots saved in folder: {out_folder}")
     print(f"\nColumns with outlier values: {cols_with_outliers}")
     print(f"Number of columns with outliers: {len(cols_with_outliers)}")
 
@@ -228,7 +263,7 @@ def main():
     print(f"Total rows processed: {total_rows:,}")
     print("Rows saved: N/A")
     print("Output paths:")
-    print(f"  - {OUT_FOLDER}")
+    print(f"  - {out_folder}")
 
 
 if __name__ == "__main__":

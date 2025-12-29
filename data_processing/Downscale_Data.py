@@ -9,8 +9,26 @@
 # - Report label counts for each output.
 
 import os
+import sys
+
+# Allow running this script from any working directory.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+import argparse
 import pandas as pd
 from collections import Counter
+
+from config.global_config import (
+    DEFAULT_CHUNK_SIZE_MB,
+    DEFAULT_MAX_OUTPUT_ROWS,
+)
+from utils.path_utils import resolve_input_path, resolve_output_path
+from utils.gpu_utils import gpu_available as dask_cuda_gpu_available
+from utils.chunk_utils import compute_chunk_plan, format_progress, print_chunk_plan
+from utils.engine_utils import select_engine
+
 
 # Input folder with all csv files
 INPUT_FOLDER = "2018_Separated_Nomissing"
@@ -27,6 +45,16 @@ RANDOM_STATE = 42
 
 
 def detect_gpu():
+    """Best-effort GPU detection used for legacy prompts.
+
+    We prefer a lightweight Dask-CUDA check (no heavy framework imports).
+    If that fails, we fall back to torch/tensorflow checks.
+    """
+    if dask_cuda_gpu_available():
+        print("GPU detected.")
+        return True, "dask_cuda"
+
+    # --- legacy fallbacks ---
     gpu_available = False
     library = None
     try:
@@ -90,25 +118,6 @@ def estimate_rows_per_chunk(file_path, chunk_mb, sample_rows=2000, default_rows=
         return int(default_rows)
 
 
-def prompt_for_max_rows():
-    while True:
-        response = input("Limit rows to save? (y/n): ").strip().lower()
-        if response in ["y", "yes"]:
-            while True:
-                value = input("Enter max rows: ").strip()
-                try:
-                    max_rows = int(value)
-                    if max_rows > 0:
-                        return max_rows
-                except ValueError:
-                    pass
-                print("Please enter a positive integer.")
-        elif response in ["n", "no"]:
-            return None
-        else:
-            print("Invalid input. Please enter 'y' or 'n'.")
-
-
 def make_unique_path(path):
     if not os.path.exists(path):
         return path
@@ -128,36 +137,128 @@ def find_label_column(columns):
     return None
 
 
-def main():
-    gpu_available, _ = detect_gpu()
-    device_choice = prompt_for_device(gpu_available)
-    if device_choice == "gpu":
-        print("GPU selected, but this script uses CPU-based pandas. Using CPU.")
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Downscale benign rows (sampling) and keep all attack rows from CSV files. "
+            "Writes benign.csv and attacks.csv to an output directory."
+        )
+    )
+
+    parser.add_argument(
+        "--engine",
+        default="pandas",
+        choices=["pandas", "dask", "dask-gpu"],
+        help="Execution engine (dask support will be added repo-wide; pandas is used today).",
+    )
+    parser.add_argument("--use-gpu", action="store_true", help="Force GPU (or fail)")
+    parser.add_argument("--no-gpu", action="store_true", help="Force CPU")
+
+    parser.add_argument(
+        "--input",
+        default=INPUT_FOLDER,
+        help="Input folder containing CSV files (absolute or repo-root-relative).",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help=(
+            "Output directory (absolute or repo-root-relative). "
+            "Defaults to './outputs/Downscale_Csv_2018' under the repo root."
+        ),
+    )
+    parser.add_argument(
+        "--chunk-size-mb",
+        type=int,
+        default=DEFAULT_CHUNK_SIZE_MB,
+        help=f"Chunk size in MB (default: {DEFAULT_CHUNK_SIZE_MB}).",
+    )
+    parser.add_argument(
+        "--max-output-rows",
+        type=int,
+        default=DEFAULT_MAX_OUTPUT_ROWS,
+        help=(
+            "Maximum rows to save per output file (benign and attacks). "
+            f"Default: {DEFAULT_MAX_OUTPUT_ROWS}."
+        ),
+    )
+    parser.add_argument(
+        "--benign-fraction",
+        type=float,
+        default=BENIGN_SAMPLING_FRACTION,
+        help=f"Fraction of benign rows kept per chunk (default: {BENIGN_SAMPLING_FRACTION}).",
+    )
+    parser.add_argument(
+        "--random-state",
+        type=int,
+        default=RANDOM_STATE,
+        help=f"Random seed for sampling/shuffling (default: {RANDOM_STATE}).",
+    )
+    parser.add_argument(
+        "--no-interactive",
+        action="store_true",
+        help="Disable interactive prompts; requires --max-output-rows if you want a cap.",
+    )
+
+    return parser
+
+
+def main(argv: list[str] | None = None):
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+
+    # Engine selection (forward-compatible). This script currently performs pandas streaming.
+    selection = select_engine(engine=args.engine, use_gpu_flag=args.use_gpu, no_gpu_flag=args.no_gpu)
+    if selection.engine != "pandas":
+        print(f"[info] --engine {selection.engine} requested; this script currently runs in pandas mode for safety.")
+    if selection.use_gpu:
+        print("[info] GPU was approved, but this script uses CPU-based pandas. Using CPU.")
     device_used = "cpu"
 
-    if not os.path.isdir(INPUT_FOLDER):
-        print(f"ERROR: Input folder not found at '{INPUT_FOLDER}'")
+    # Keep the legacy prompt behavior (but avoid heavy framework imports when possible).
+    if not args.no_interactive:
+        gpu_present, _ = detect_gpu()
+        device_choice = prompt_for_device(gpu_present)
+        if device_choice == "gpu":
+            print("GPU selected, but this script uses CPU-based pandas. Using CPU.")
+
+    input_folder = resolve_input_path(args.input)
+
+    # Output: if user passes --output-dir, use it; else default to <repo_root>/outputs/Downscale_Csv_2018
+    base_output_dir = resolve_output_path(args.output_dir)
+    output_folder = os.path.join(base_output_dir, "Downscale_Csv_2018")
+
+    if not os.path.isdir(input_folder):
+        print(f"ERROR: Input folder not found at '{input_folder}'")
         return
 
-    csv_files = []
-    for root, _, files in os.walk(INPUT_FOLDER):
+    csv_files: list[str] = []
+    for root, _, files in os.walk(input_folder):
         for file in files:
-            if file.endswith(".csv"):
+            if file.lower().endswith(".csv"):
                 csv_files.append(os.path.join(root, file))
 
     if not csv_files:
         print("No CSV files found in the input folder.")
         return
 
-    chunk_mb = prompt_for_chunk_size_mb()
+    chunk_mb = int(args.chunk_size_mb)
+
+    # Mandatory chunk pre-calculation (from file size) for progress tracking.
+    plan0 = compute_chunk_plan(csv_files[0], chunk_mb)
+    print_chunk_plan(plan0)
+
     chunk_rows = estimate_rows_per_chunk(csv_files[0], chunk_mb)
     print(f"Using chunk size: {chunk_mb}MB (~{chunk_rows:,} rows per chunk)")
 
-    max_rows_limit = prompt_for_max_rows()
+    max_rows_limit = args.max_output_rows
 
-    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-    output_benign_file = make_unique_path(os.path.join(OUTPUT_FOLDER, "benign.csv"))
-    output_attacks_file = make_unique_path(os.path.join(OUTPUT_FOLDER, "attacks.csv"))
+    benign_fraction = float(args.benign_fraction)
+    random_state = int(args.random_state)
+
+    os.makedirs(output_folder, exist_ok=True)
+    output_benign_file = make_unique_path(os.path.join(output_folder, "benign.csv"))
+    output_attacks_file = make_unique_path(os.path.join(output_folder, "attacks.csv"))
 
     print("Starting the downscaling and separation process...")
 
@@ -172,6 +273,10 @@ def main():
 
     for file_idx, file_path in enumerate(csv_files, 1):
         print(f"\nProcessing {file_path} ({file_idx}/{len(csv_files)})...")
+
+        file_plan = compute_chunk_plan(file_path, chunk_mb)
+        print_chunk_plan(file_plan)
+
         try:
             chunk_iter = pd.read_csv(file_path, chunksize=chunk_rows, low_memory=False)
         except Exception as e:
@@ -180,6 +285,9 @@ def main():
 
         label_col_found = None
         for chunk_idx, chunk in enumerate(chunk_iter, 1):
+            # Standard progress format (mandatory).
+            print(format_progress(chunk_idx, file_plan.total_chunks))
+
             if label_col_found is None:
                 label_col_found = find_label_column(chunk.columns)
                 if not label_col_found:
@@ -187,7 +295,6 @@ def main():
                     break
 
             total_rows_processed += len(chunk)
-            print(f"  Processing chunk {chunk_idx} ({len(chunk):,} rows)...")
 
             labels = chunk[label_col_found].astype(str)
             benign_mask = labels.str.lower().eq("benign")
@@ -196,7 +303,7 @@ def main():
             attack_chunk = chunk[~benign_mask]
 
             if not benign_chunk.empty:
-                benign_sample = benign_chunk.sample(frac=BENIGN_SAMPLING_FRACTION, random_state=RANDOM_STATE)
+                benign_sample = benign_chunk.sample(frac=benign_fraction, random_state=random_state)
                 if not benign_sample.empty:
                     if max_rows_limit is not None:
                         remaining = max_rows_limit - benign_written
@@ -205,7 +312,7 @@ def main():
                         elif len(benign_sample) > remaining:
                             benign_sample = benign_sample.iloc[:remaining]
                     if not benign_sample.empty:
-                        benign_sample = benign_sample.sample(frac=1, random_state=RANDOM_STATE)
+                        benign_sample = benign_sample.sample(frac=1, random_state=random_state)
                         benign_sample.to_csv(
                             output_benign_file,
                             index=False,
@@ -224,7 +331,7 @@ def main():
                     elif len(attack_chunk) > remaining:
                         attack_chunk = attack_chunk.iloc[:remaining]
                 if not attack_chunk.empty:
-                    attack_chunk = attack_chunk.sample(frac=1, random_state=RANDOM_STATE)
+                    attack_chunk = attack_chunk.sample(frac=1, random_state=random_state)
                     attack_chunk.to_csv(
                         output_attacks_file,
                         index=False,

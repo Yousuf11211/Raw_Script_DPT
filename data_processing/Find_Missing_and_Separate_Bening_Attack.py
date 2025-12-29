@@ -9,9 +9,21 @@
 # - Save chunked outputs with progress reporting.
 
 import os
+import sys
+import argparse
+
+# Allow running this script from any working directory.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 import pandas as pd
 from collections import defaultdict
-import math
+
+from config.global_config import DEFAULT_CHUNK_SIZE_MB, DEFAULT_MAX_OUTPUT_ROWS
+from utils.chunk_utils import compute_chunk_plan, format_progress, print_chunk_plan
+from utils.engine_utils import select_engine
+from utils.path_utils import resolve_input_path, resolve_output_path
 
 # --- 1. Global Configuration ---
 INPUT_FOLDER = "Normalized_SET"
@@ -279,46 +291,119 @@ def process_and_save_combined(
 
 # --- 3. Main ---
 
-def main():
-    gpu_available, _ = detect_gpu()
-    device_choice = prompt_for_device(gpu_available)
-    if device_choice == "gpu":
-        print("GPU selected, but this script uses CPU-based pandas. Using CPU.")
+def build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description=(
+            "Analyze label distributions and separate benign/attack rows into output files (streaming-safe)."
+        )
+    )
+    p.add_argument("--input", default=INPUT_FOLDER, help="Input folder containing CSVs")
+    p.add_argument("--output-dir", default=None, help="Base output directory")
+    p.add_argument("--chunk-size-mb", type=int, default=DEFAULT_CHUNK_SIZE_MB, help="Chunk size in MB")
+    p.add_argument("--engine", default="pandas", choices=["pandas", "dask", "dask-gpu"], help="Execution engine")
+    p.add_argument("--use-gpu", action="store_true", help="Force GPU (or fail)")
+    p.add_argument("--no-gpu", action="store_true", help="Force CPU")
+    p.add_argument("--no-interactive", action="store_true", help="Disable interactive prompts")
+    p.add_argument(
+        "--processing-mode",
+        choices=["benign", "attacks", "both"],
+        default=None,
+        help="Override interactive group selection",
+    )
+    p.add_argument(
+        "--rows-per-file",
+        type=int,
+        default=None,
+        help="Max rows per output file (non-interactive override)",
+    )
+    p.add_argument(
+        "--shuffle",
+        action="store_true",
+        help="Shuffle output rows before saving (non-interactive)",
+    )
+    p.add_argument(
+        "--max-output-rows",
+        type=int,
+        default=DEFAULT_MAX_OUTPUT_ROWS,
+        help="Max total rows to write per group (non-interactive default)",
+    )
+    return p
+
+
+def get_user_choice(prompt: str, *, default: str | None = None) -> str:
+    if _NO_INTERACTIVE:
+        if default is None:
+            raise ValueError(f"Non-interactive mode requires default for prompt: {prompt}")
+        print(f"{prompt} [auto: {default}]")
+        return str(default)
+    return input(prompt)
+
+
+def get_yes_no(prompt: str, *, default: bool = False) -> bool:
+    if _NO_INTERACTIVE:
+        print(f"{prompt} (y/n): [auto: {'y' if default else 'n'}]")
+        return bool(default)
+    return input(f"{prompt} (y/n): ").strip().lower() in {"y", "yes"}
+
+
+def main(argv: list[str] | None = None):
+    global _NO_INTERACTIVE, CHUNK_ROWS, OUTPUT_FOLDER
+    args = build_arg_parser().parse_args(argv)
+    _NO_INTERACTIVE = args.no_interactive
+
+    # Engine selection (pandas streaming today)
+    selection = select_engine(engine=args.engine, use_gpu_flag=args.use_gpu, no_gpu_flag=args.no_gpu)
+    if selection.engine != "pandas":
+        print(f"[info] --engine {selection.engine} requested; this script currently runs in pandas mode.")
+    if selection.use_gpu:
+        print("[info] GPU was approved, but this script uses CPU-based pandas. Using CPU.")
     device_used = "cpu"
 
-    if not os.path.isdir(INPUT_FOLDER):
-        print(f"No CSV files found in '{INPUT_FOLDER}'. Exiting.")
+    input_folder = resolve_input_path(args.input)
+    base_output_dir = resolve_output_path(args.output_dir)
+    OUTPUT_FOLDER = os.path.join(base_output_dir, "Separated_Model_Data")
+
+    if not os.path.isdir(input_folder):
+        print(f"No CSV files found in '{input_folder}'. Exiting.")
         return
 
     all_csv_files = [
         os.path.join(root, file)
-        for root, _, files in os.walk(INPUT_FOLDER)
+        for root, _, files in os.walk(input_folder)
         for file in files if file.endswith(".csv")
     ]
     if not all_csv_files:
-        print(f"No CSV files found in '{INPUT_FOLDER}'. Exiting.")
+        print(f"No CSV files found in '{input_folder}'. Exiting.")
         return
 
-    chunk_mb = prompt_for_chunk_size_mb()
-    global CHUNK_ROWS
+    chunk_mb = int(args.chunk_size_mb)
+    plan0 = compute_chunk_plan(all_csv_files[0], chunk_mb)
+    print_chunk_plan(plan0)
+
     CHUNK_ROWS = estimate_rows_per_chunk(all_csv_files[0], chunk_mb)
     print(f"Using chunk size: {chunk_mb}MB (~{CHUNK_ROWS:,} rows per chunk)")
 
-    while True:
-        print("\nPlease choose which data group to process:")
-        print("  1: Benign Only")
-        print("  2: Attacks Only")
-        print("  3: Both Benign and Attacks")
-        choice = input("Enter your choice (1, 2, or 3): ").strip()
-        if choice in ['1', '2', '3']:
-            break
-        print("Invalid choice. Please enter 1, 2, or 3.")
-
-    processing_mode = 'both'
-    if choice == '1':
-        processing_mode = 'benign'
-    elif choice == '2':
-        processing_mode = 'attacks'
+    # Choose processing mode
+    if args.processing_mode is not None:
+        processing_mode = args.processing_mode
+    else:
+        if _NO_INTERACTIVE:
+            processing_mode = "both"
+        else:
+            while True:
+                print("\nPlease choose which data group to process:")
+                print("  1: Benign Only")
+                print("  2: Attacks Only")
+                print("  3: Both Benign and Attacks")
+                choice = get_user_choice("Enter your choice (1, 2, or 3): ").strip()
+                if choice in ['1', '2', '3']:
+                    break
+                print("Invalid choice. Please enter 1, 2, or 3.")
+            processing_mode = 'both'
+            if choice == '1':
+                processing_mode = 'benign'
+            elif choice == '2':
+                processing_mode = 'attacks'
 
     total_counts, files_by_label, actual_label_col = analyze_and_classify(all_csv_files, processing_mode)
     if not actual_label_col:
@@ -336,34 +421,45 @@ def main():
             attack_labels_in_data[label] = count
     print("-------------------------------------------------")
 
-    process_benign = choice in ['1', '3']
-    process_attacks = choice in ['2', '3']
+    process_benign = processing_mode in ['benign', 'both']
+    process_attacks = processing_mode in ['attacks', 'both']
 
-    should_shuffle = input("Do you want to shuffle the final output files? (y/n): ").strip().lower() in ['y', 'yes']
-    max_rows_limit = prompt_for_max_rows()
+    should_shuffle = bool(args.shuffle) if _NO_INTERACTIVE else get_yes_no("Do you want to shuffle the final output files?", default=False)
+    max_rows_limit = int(args.max_output_rows) if _NO_INTERACTIVE else prompt_for_max_rows()
 
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
+    if args.rows_per_file is not None:
+        rows_per_file = int(args.rows_per_file)
+    else:
+        rows_per_file = None
+
     if process_benign and benign_label_in_data:
         print("\n" + "=" * 30 + " PROCESSING BENIGN DATA " + "=" * 30)
-        while True:
-            try:
-                rows_per_file = int(input("Enter max rows per Benign file: ").strip())
-                if rows_per_file > 0:
-                    process_and_save_combined(
-                        file_list=files_by_label[benign_label_in_data],
-                        rows_per_output_file=rows_per_file,
-                        labels_to_keep=[benign_label_in_data],
-                        output_group_name='Benign',
-                        output_base_path=os.path.join(OUTPUT_FOLDER, 'Benign'),
-                        should_shuffle=should_shuffle,
-                        actual_label_col_name=actual_label_col,
-                        max_rows_limit=max_rows_limit,
-                    )
-                    break
-                print("  Please enter a positive number.")
-            except ValueError:
-                print("  Invalid input. Please enter a whole number.")
+        if rows_per_file is None:
+            if _NO_INTERACTIVE:
+                rows_per_file = 500_000
+                print(f"Enter max rows per Benign file: [auto: {rows_per_file}]")
+            else:
+                while True:
+                    try:
+                        rows_per_file = int(input("Enter max rows per Benign file: ").strip())
+                        if rows_per_file > 0:
+                            break
+                        print("  Please enter a positive number.")
+                    except ValueError:
+                        print("  Invalid input. Please enter a whole number.")
+
+        process_and_save_combined(
+            file_list=files_by_label.get(benign_label_in_data, []),
+            rows_per_output_file=int(rows_per_file),
+            labels_to_keep=[benign_label_in_data],
+            output_group_name='Benign',
+            output_base_path=os.path.join(OUTPUT_FOLDER, 'Benign'),
+            should_shuffle=should_shuffle,
+            actual_label_col_name=actual_label_col,
+            max_rows_limit=max_rows_limit,
+        )
     elif process_benign:
         print("\nSkipping Benign processing: No 'Benign' labels found in the analyzed data.")
 
@@ -373,24 +469,30 @@ def main():
         all_attack_labels = list(attack_labels_in_data.keys())
         total_attack_rows = sum(attack_labels_in_data.values())
 
-        while True:
-            try:
-                rows_per_file = int(input(f"Enter max rows per Attack file ({total_attack_rows:,} total available): ").strip())
-                if rows_per_file > 0:
-                    process_and_save_combined(
-                        file_list=all_attack_files,
-                        rows_per_output_file=rows_per_file,
-                        labels_to_keep=all_attack_labels,
-                        output_group_name='Attacks',
-                        output_base_path=os.path.join(OUTPUT_FOLDER, 'Attacks'),
-                        should_shuffle=should_shuffle,
-                        actual_label_col_name=actual_label_col,
-                        max_rows_limit=max_rows_limit,
-                    )
-                    break
-                print("  Please enter a positive number.")
-            except ValueError:
-                print("  Invalid input. Please enter a whole number.")
+        if rows_per_file is None:
+            if _NO_INTERACTIVE:
+                rows_per_file = 500_000
+                print(f"Enter max rows per Attack file ({total_attack_rows:,} total available): [auto: {rows_per_file}]")
+            else:
+                while True:
+                    try:
+                        rows_per_file = int(input(f"Enter max rows per Attack file ({total_attack_rows:,} total available): ").strip())
+                        if rows_per_file > 0:
+                            break
+                        print("  Please enter a positive number.")
+                    except ValueError:
+                        print("  Invalid input. Please enter a whole number.")
+
+        process_and_save_combined(
+            file_list=all_attack_files,
+            rows_per_output_file=int(rows_per_file),
+            labels_to_keep=all_attack_labels,
+            output_group_name='Attacks',
+            output_base_path=os.path.join(OUTPUT_FOLDER, 'Attacks'),
+            should_shuffle=should_shuffle,
+            actual_label_col_name=actual_label_col,
+            max_rows_limit=max_rows_limit,
+        )
     elif process_attacks:
         print("\nSkipping Attack processing: No attack labels found in the analyzed data.")
 
