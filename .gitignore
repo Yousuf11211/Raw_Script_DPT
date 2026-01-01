@@ -27,3 +27,7 @@ outputs/
 # OS
 .DS_Store
 Thumbs.db
+
+output_cleaned/
+output_missing/
+.github
