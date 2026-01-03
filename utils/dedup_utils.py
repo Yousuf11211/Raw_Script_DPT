@@ -78,11 +78,14 @@ class SQLiteHashStore:
             if not buf:
                 return
 
-            # Query existing.
-            placeholders = ",".join(["?"] * len(buf))
+            # Query existing in batches of <=999 to avoid SQLite limit.
+            SQLITE_MAX_VARS = 999
             existing = set()
-            for row in self.conn.execute(f"SELECT h FROM seen WHERE h IN ({placeholders});", buf):
-                existing.add(int(row[0]))
+            for i in range(0, len(buf), SQLITE_MAX_VARS):
+                batch = buf[i:i+SQLITE_MAX_VARS]
+                placeholders = ",".join(["?"] * len(batch))
+                for row in self.conn.execute(f"SELECT h FROM seen WHERE h IN ({placeholders});", batch):
+                    existing.add(int(row[0]))
 
             # keep if not existing
             seen_before.extend([h not in existing for h in buf])

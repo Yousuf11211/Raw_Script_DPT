@@ -14,48 +14,57 @@ import csv
 import argparse
 import pandas as pd
 from typing import List, Tuple, Dict
+from itertools import chain
 
 # --- Default configuration (can be overridden by CLI) ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
-DEFAULT_INPUT_FOLDER = "Attacks"
+DEFAULT_INPUT_FOLDER = "Bening"
 DEFAULT_OUTPUT_FOLDER = os.path.join(OUTPUT_ROOT, "Attacks_Cleaned")
 DEFAULT_SUMMARY_NAME = "deletion_summary.csv"
 
-# Base columns to remove (will be merged/edited at runtime)
-BASE_COLUMNS_TO_REMOVE = [
-    'flow_id','src_ip','dst_ip','timestamp','active_cov','active_max','active_mean','active_median',
-    'active_min','active_mode','active_skewness','active_std','active_variance','bwd_cwr_flag_counts',
-    'bwd_cwr_flag_percentage_in_bwd_packets','bwd_cwr_flag_percentage_in_total','bwd_payload_bytes_min',
-    'bwd_urg_flag_counts','bwd_urg_flag_percentage_in_bwd_packets','bwd_urg_flag_percentage_in_total',
-    'fwd_payload_bytes_min','fwd_urg_flag_counts','fwd_urg_flag_percentage_in_fwd_packets',
-    'fwd_urg_flag_percentage_in_total','handshake_state','idle_cov','idle_max','idle_mean','idle_median',
-    'idle_min','idle_mode','idle_skewness','idle_std','idle_variance','median_bwd_header_bytes_delta_len',
-    'median_fwd_header_bytes_delta_len','median_header_bytes_delta_len','mode_bwd_header_bytes_delta_len',
-    'mode_fwd_header_bytes_delta_len','payload_bytes_min','urg_flag_counts','protocol',
-    'urg_flag_percentage_in_total','cov_bwd_payload_bytes_delta_len','cov_fwd_header_bytes_delta_len',
-    'cov_fwd_packets_delta_len','cov_fwd_payload_bytes_delta_len','cov_header_bytes_delta_len',
-    'cov_packets_delta_len','cov_payload_bytes_delta_len','protocol',
-    'mean_payload_bytes_delta_len','fwd_payload_bytes_mode','mode_header_bytes_delta_len','payload_bytes_mode',
-    'min_header_bytes_delta_len','bwd_ece_flag_percentage_in_bwd_packets','avg_fwd_bytes_per_bulk','avg_fwd_packets_per_bulk',
-    'packets_IAT_mode','fwd_syn_flag_counts','fwd_bulk_per_packet','fwd_bulk_total_size','bwd_rst_flag_counts',
-    'bwd_syn_flag_counts','fwd_bulk_state_count','bwd_ece_flag_percentage_in_total','bwd_ece_flag_counts',
-    'mean_fwd_payload_bytes_delta_len','mode_fwd_payload_bytes_delta_len','mode_payload_bytes_delta_len','std_bwd_packets_delta_time',
-    'cov_packets_delta_time','cov_fwd_packets_delta_time','mean_packets_delta_time','variance_bwd_packets_delta_time',
-    'fwd_payload_bytes_cov','mode_packets_delta_len','min_fwd_packets_delta_time','avg_fwd_bulk_rate','mean_bwd_packets_delta_time',
-    'fwd_packets_IAT_min','fwd_payload_bytes_median','rst_flag_counts','skewness_packets_delta_time','skewness_fwd_packets_delta_time',
-    'variance_packets_delta_time','bwd_rst_flag_percentage_in_bwd_packets','fwd_variance_header_bytes','bwd_fin_flag_counts',
-    'bwd_fin_flag_percentage_in_total','rst_flag_percentage_in_total','handshake_duration','std_packets_delta_time','fwd_packets_IAT_mode',
-    'psh_flag_percentage_in_total','payload_bytes_median','variance_fwd_packets_delta_time','bwd_fin_flag_percentage_in_bwd_packets',
-    'fwd_std_header_bytes','max_bwd_packets_delta_time','mode_fwd_packets_delta_time','skewness_bwd_header_bytes_delta_len',
-    'mode_bwd_packets_delta_time','bwd_packets_IAT_mode','max_bwd_header_bytes_delta_len','mean_bwd_header_bytes_delta_len',
-    'skewness_fwd_payload_bytes_delta_len','skewness_payload_bytes_delta_len','median_bwd_packets_delta_len','packet_IAT_min',
-    'bwd_variance_header_bytes','std_fwd_packets_delta_time','mean_fwd_packets_delta_time','median_fwd_packets_delta_len',
-    'median_bwd_payload_bytes_delta_len','min_fwd_header_bytes_delta_len','fwd_psh_flag_percentage_in_fwd_packets','cov_bwd_packets_delta_time',
-    'fwd_packets_count','fwd_ack_flag_counts','mean_fwd_packets_delta_len','bwd_rst_flag_percentage_in_total','avg_bwd_bulk_rate',
-    'fwd_cov_header_bytes','fwd_psh_flag_counts','fwd_payload_bytes_skewness','fwd_rst_flag_percentage_in_fwd_packets',
-    'fwd_syn_flag_percentage_in_total'
+# -------------------
+# Column Deletion Lists (by reason)
+# -------------------
+CONSTANT_COLUMNS = [
+    'flow_id','src_ip','dst_ip','timestamp','protocol', 'payload_bytes_min','fwd_payload_bytes_min','bwd_payload_bytes_min','urg_flag_counts',
+    'fwd_urg_flag_counts','bwd_urg_flag_counts','urg_flag_percentage_in_total','fwd_urg_flag_percentage_in_total','bwd_urg_flag_percentage_in_total','fwd_urg_flag_percentage_in_fwd_packets',
+    'bwd_urg_flag_percentage_in_bwd_packets'
 ]
+LOW_VARIANCE_COLUMNS_95_99 = [
+    'payload_bytes_mode','bwd_payload_bytes_mode','max_header_bytes','min_header_bytes','median_header_bytes', 'mode_header_bytes','fwd_max_header_bytes',
+    'fwd_min_header_bytes','fwd_median_header_bytes','fwd_mode_header_bytes','bwd_min_header_bytes','fwd_init_win_bytes','active_min',
+    'active_max','active_mean','active_std','active_median','active_skewness','active_cov','active_mode','active_variance',
+    'idle_min','idle_max','idle_mean','idle_std','idle_median','idle_skewness','idle_cov','idle_mode','idle_variance','avg_fwd_bytes_per_bulk',
+    'avg_fwd_packets_per_bulk','avg_fwd_bulk_rate','fwd_bulk_state_count','fwd_bulk_total_size','fwd_bulk_per_packet','fwd_bulk_duration',
+    'syn_flag_counts','fwd_syn_flag_counts','bwd_syn_flag_counts','bwd_cwr_flag_counts','bwd_cwr_flag_percentage_in_total','bwd_ack_flag_percentage_in_bwd_packets',
+    'bwd_cwr_flag_percentage_in_bwd_packets','handshake_state','mode_header_bytes_delta_len','median_header_bytes_delta_len','mode_bwd_header_bytes_delta_len',
+    'median_bwd_header_bytes_delta_len','min_fwd_header_bytes_delta_len','max_fwd_header_bytes_delta_len','mode_fwd_header_bytes_delta_len','median_fwd_header_bytes_delta_len',
+    'mean_payload_bytes_delta_len','cov_payload_bytes_delta_len'
+]
+
+LOW_VARIANCE_COLUMNS_90_95 = [
+    'fwd_payload_bytes_mode','bwd_max_header_bytes','bwd_median_header_bytes','bwd_mode_header_bytes','min_header_bytes_delta_len','min_bwd_header_bytes_delta_len',
+    'mean_fwd_payload_bytes_delta_len','cov_fwd_payload_bytes_delta_len'
+]
+#
+# Master list of list names to use for deletion
+DELETION_LISTS = [
+    'CONSTANT_COLUMNS',
+    'LOW_VARIANCE_COLUMNS_95_99',
+    'LOW_VARIANCE_COLUMNS_90_95',
+    # Add new list names here to include them in deletion
+]
+
+# Utility to collect all columns from the named lists
+def get_columns_to_remove(list_names: list[str]) -> list[str]:
+    cols = []
+    for name in list_names:
+        if name in globals():
+            cols.extend(globals()[name])
+        else:
+            print(f"Warning: List '{name}' not defined.")
+    return cols
 
 # ----------------------------------------------------------------------------
 # Utility functions
@@ -305,6 +314,12 @@ def main():
     output_folder = args.output_folder
     dry_run = args.dry_run
 
+    # Resolve input folder relative to project root if not absolute
+    if not os.path.isabs(input_folder):
+        # Project root is parent of script directory
+        project_root = os.path.dirname(SCRIPT_DIR)
+        input_folder = os.path.join(project_root, input_folder)
+
     if not os.path.isabs(output_folder):
         output_folder = os.path.join(OUTPUT_ROOT, output_folder)
 
@@ -330,7 +345,10 @@ def main():
     add_cols = [c for c in args.add_cols.split(',') if c.strip()] if args.add_cols else []
     remove_cols = [c for c in args.remove_cols.split(',') if c.strip()] if args.remove_cols else []
 
-    final_list, duplicates = build_final_deletion_list(BASE_COLUMNS_TO_REMOVE, file_cols + add_cols, remove_cols)
+    # Instead of BASE_COLUMNS_TO_REMOVE, use the scalable system
+    # Collect columns from all lists in DELETION_LISTS
+    base_columns = get_columns_to_remove(DELETION_LISTS)
+    final_list, duplicates = build_final_deletion_list(base_columns, file_cols + add_cols, remove_cols)
 
     print("======================================")
     print(" Dynamic Column Deletion Tool")
@@ -339,7 +357,7 @@ def main():
     print(f"Output folder: {output_folder}")
     print(f"Dry-run: {dry_run}")
     print(f"Chunk size: {chunk_size}")
-    print(f"Base columns: {len(BASE_COLUMNS_TO_REMOVE)} | External file: {len(file_cols)} | CLI add: {len(add_cols)} | CLI remove: {len(remove_cols)}")
+    print(f"Base columns (from DELETION_LISTS): {len(base_columns)} | External file: {len(file_cols)} | CLI add: {len(add_cols)} | CLI remove: {len(remove_cols)}")
     if duplicates:
         print(f"Duplicate entries removed (after normalization): {duplicates}")
     print(f"Final unique columns scheduled for deletion: {len(final_list)}")

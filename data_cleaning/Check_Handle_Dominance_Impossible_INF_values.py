@@ -26,7 +26,7 @@ from utils.path_utils import resolve_input_path, resolve_output_path
 from utils.gpu_utils import gpu_available as dask_cuda_gpu_available
 
 # --- GLOBAL CONFIGURATION VARIABLES ---
-INPUT_FOLDER = "IDS2018"
+INPUT_FOLDER = "Bening"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
@@ -294,7 +294,8 @@ def generate_dominance_report(file_path):
                         f.write(col_header + "\n")
                         print(col_header)
 
-                        for val, count in counts.most_common():
+                        # Only show top 5 values for each column
+                        for val, count in counts.most_common(5):
                             ratio = count / total
                             line_to_output = f"  Value '{val}': {count:,} ({ratio * 100:.2f}%)"
                             if val in col_value_label_counter.get(col, {}):

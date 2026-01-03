@@ -30,7 +30,7 @@ from utils.path_utils import resolve_input_path, resolve_output_path
 
 # ========= CONFIG =========
 # Legacy defaults (kept for backward compatibility)
-INPUT_FOLDER = "uploads/raw"
+INPUT_FOLDER = "Bening"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
@@ -283,6 +283,10 @@ def main(argv: list[str] | None = None):
 
         dup_rows_count = 0
         missing_counts = Counter()
+        duplicate_row_examples = []  # Collect up to 10 duplicate rows as dicts
+        duplicate_row_indices = []   # Collect their original indices (row numbers in file)
+        row_hash_counter = Counter()  # Count occurrences of each row hash
+        row_hash_to_row = {}         # Map row hash to row content (first occurrence)
 
         output_path = None
         header_written = False
@@ -325,10 +329,13 @@ def main(argv: list[str] | None = None):
                     missing_counts.update(chunk.isna().sum().to_dict())
 
                 if do_dup_rows or remove_dup_rows:
-                    # Stable row hash (pandas). We store in SQLite to avoid RAM growth.
                     row_hashes = pd.util.hash_pandas_object(chunk, index=False).astype("int64")
                     keep_mask = store.keep_mask(row_hashes.tolist()) if store is not None else [True] * len(chunk)
-                    # keep_mask=True means first time seen
+                    # Count all row hashes for top duplicates
+                    for i, h in enumerate(row_hashes):
+                        row_hash_counter[h] += 1
+                        if h not in row_hash_to_row:
+                            row_hash_to_row[h] = chunk.iloc[i].to_dict()
                     if do_dup_rows:
                         dup_rows_count += int(len(keep_mask) - sum(keep_mask))
                     if remove_dup_rows:
@@ -368,6 +375,18 @@ def main(argv: list[str] | None = None):
         if do_dup_rows:
             print(f"Duplicate rows: {dup_rows_count}")
             report_lines.append(f"  Duplicate rows: {dup_rows_count}")
+            # Print top 10 most frequent duplicate rows
+            top_dupes = [(h, c) for h, c in row_hash_counter.items() if c > 1]
+            top_dupes.sort(key=lambda x: -x[1])
+            top10 = top_dupes[:10]
+            if top10:
+                report_lines.append(f"  Top 10 most frequent duplicate rows:")
+                print("Top 10 most frequent duplicate rows:")
+                for i, (h, count) in enumerate(top10, 1):
+                    row = row_hash_to_row[h]
+                    row_str = ', '.join(f'{k}={repr(v)}' for k, v in row.items())
+                    report_lines.append(f"    [{i}] (count={count}) {row_str}")
+                    print(f"    [{i}] (count={count}) {row_str}")
 
         if do_missing:
             missing_dict = {col: count for col, count in missing_counts.items() if count > 0}
