@@ -26,34 +26,268 @@ DEFAULT_SUMMARY_NAME = "deletion_summary.csv"
 # -------------------
 # Column Deletion Lists (by reason)
 # -------------------
-CONSTANT_COLUMNS = [
+CONSTANT_COLUMNS_1 = [
     'flow_id','src_ip','dst_ip','timestamp','protocol', 'payload_bytes_min','fwd_payload_bytes_min','bwd_payload_bytes_min','urg_flag_counts',
     'fwd_urg_flag_counts','bwd_urg_flag_counts','urg_flag_percentage_in_total','fwd_urg_flag_percentage_in_total','bwd_urg_flag_percentage_in_total','fwd_urg_flag_percentage_in_fwd_packets',
     'bwd_urg_flag_percentage_in_bwd_packets'
 ]
-LOW_VARIANCE_COLUMNS_95_99 = [
+LOW_VARIANCE_COLUMNS_95_99_2 = [
     'payload_bytes_mode','bwd_payload_bytes_mode','max_header_bytes','min_header_bytes','median_header_bytes', 'mode_header_bytes','fwd_max_header_bytes',
-    'fwd_min_header_bytes','fwd_median_header_bytes','fwd_mode_header_bytes','bwd_min_header_bytes','fwd_init_win_bytes','active_min',
-    'active_max','active_mean','active_std','active_median','active_skewness','active_cov','active_mode','active_variance',
-    'idle_min','idle_max','idle_mean','idle_std','idle_median','idle_skewness','idle_cov','idle_mode','idle_variance','avg_fwd_bytes_per_bulk',
+    'fwd_min_header_bytes','fwd_median_header_bytes','fwd_mode_header_bytes','bwd_min_header_bytes','fwd_init_win_bytes',
+    'active_max','active_median','active_skewness','active_cov','active_mode','active_variance',
+    'idle_max','idle_median','idle_skewness','idle_cov','idle_mode','idle_variance','avg_fwd_bytes_per_bulk',
     'avg_fwd_packets_per_bulk','avg_fwd_bulk_rate','fwd_bulk_state_count','fwd_bulk_total_size','fwd_bulk_per_packet','fwd_bulk_duration',
-    'syn_flag_counts','fwd_syn_flag_counts','bwd_syn_flag_counts','bwd_cwr_flag_counts','bwd_cwr_flag_percentage_in_total','bwd_ack_flag_percentage_in_bwd_packets',
-    'bwd_cwr_flag_percentage_in_bwd_packets','handshake_state','mode_header_bytes_delta_len','median_header_bytes_delta_len','mode_bwd_header_bytes_delta_len',
+    'fwd_syn_flag_counts','bwd_syn_flag_counts','bwd_cwr_flag_counts','bwd_cwr_flag_percentage_in_total',
+    'bwd_cwr_flag_percentage_in_bwd_packets','mode_header_bytes_delta_len','median_header_bytes_delta_len','mode_bwd_header_bytes_delta_len',
     'median_bwd_header_bytes_delta_len','min_fwd_header_bytes_delta_len','max_fwd_header_bytes_delta_len','mode_fwd_header_bytes_delta_len','median_fwd_header_bytes_delta_len',
     'mean_payload_bytes_delta_len','cov_payload_bytes_delta_len'
 ]
 
-LOW_VARIANCE_COLUMNS_90_95 = [
+LOW_VARIANCE_COLUMNS_90_95_3 = [
     'fwd_payload_bytes_mode','bwd_max_header_bytes','bwd_median_header_bytes','bwd_mode_header_bytes','min_header_bytes_delta_len','min_bwd_header_bytes_delta_len',
     'mean_fwd_payload_bytes_delta_len','cov_fwd_payload_bytes_delta_len'
 ]
-#
+
+INF_VALUES_40_MORE_4 =[
+    'cov_bwd_payload_bytes_delta_len'
+]
+
+
+# Corelated columns
+
+duration_packet_iat_total_6 =[
+    'bwd_packets_iat_total','fwd_packets_iat_total'
+]
+
+ack_flag_counts_7 = [
+    'bwd_ack_flag_counts','bwd_bulk_per_packet','bwd_bulk_total_size','bwd_total_payload_bytes',
+    'cov_packets_delta_len'
+
+]
+
+bwd_payload_bytes_8 = [
+    'bwd_payload_bytes_std','fwd_payload_bytes_max','fwd_payload_bytes_std','max_fwd_packets_delta_len','max_fwd_payload_bytes_delta_len',
+    'max_packets_delta_len','max_payload_bytes_delta_len','min_fwd_packets_delta_len','min_fwd_payload_bytes_delta_len','min_packets_delta_len',
+    'min_payload_bytes_delta_len','payload_bytes_max','std_fwd_packets_delta_len','std_fwd_payload_bytes_delta_len',
+    'std_packets_delta_len','std_payload_bytes_delta_len'
+]
+
+avg_segment_size_9 = [
+    'bwd_avg_segment_size', 'bwd_payload_bytes_mean', 'fwd_payload_bytes_mean', 'payload_bytes_mean'
+]
+
+payload_bytes_variance_10  =  [
+    'fwd_payload_bytes_variance', 'variance_fwd_packets_delta_len', 'variance_fwd_payload_bytes_delta_len', 'variance_packets_delta_len', 'variance_payload_bytes_delta_len'
+]
+
+# since we kept payload in the #10 we dont need any of these
+payload_bytes_variance_11 = [
+    'variance_bwd_packets_delta_len', 'variance_bwd_payload_bytes_delta_len','bwd_payload_bytes_variance'
+]
+
+payload_bytes_variance_12  =  [
+    'bwd_payload_bytes_skewness','bwd_payload_bytes_cov'
+]
+
+skipping_frd_bwd_13  =  [
+    'bwd_cov_header_bytes','bwd_mean_header_bytes', 'bwd_std_header_bytes', 'bwd_variance_header_bytes', 'cov_header_bytes', 'std_bwd_header_bytes_delta_len', 'std_header_bytes_delta_len', 'variance_bwd_header_bytes_delta_len', 'variance_header_bytes_delta_len'
+]
+
+skewness_header_bytes_14  = [
+    'skewness_header_bytes_delta_len'
+]
+
+# real ids never uses fwd or bwd
+skipping_frd_bwd_15  = [
+    'fwd_cov_header_bytes','fwd_std_header_bytes', 'fwd_variance_header_bytes', 'std_fwd_header_bytes_delta_len', 'variance_fwd_header_bytes_delta_len'
+]
+
+skipping_frd_bwd_16  = [
+    'skewness_fwd_header_bytes_delta_len','fwd_skewness_header_bytes'
+]
+
+skipping_frd_bwd_17 =  [
+    'skewness_bwd_header_bytes_delta_len','bwd_skewness_header_bytes'
+]
+
+bytes_rate_packets_rate_18  =  [
+    'bwd_packets_rate', 'fwd_packets_rate','bwd_bytes_rate'
+]
+
+skipping_frd_bwd_19  =  [
+    'avg_bwd_packets_bulk_rate','avg_bwd_bytes_per_bulk'
+]
+
+fin_flag_counts_20  =  [
+     'fwd_fin_flag_counts','bwd_fin_flag_counts'
+]
+
+psh_flag_counts_21  =  [
+    'psh_flag_counts','bwd_psh_flag_counts'
+]
+
+ece_flag_counts_22  = [
+    'bwd_ece_flag_counts','bwd_ece_flag_percentage_in_bwd_packets', 'bwd_ece_flag_percentage_in_total', 'cwr_flag_percentage_in_total', 'ece_flag_percentage_in_total', 'fwd_cwr_flag_counts', 'fwd_cwr_flag_percentage_in_fwd_packets', 'fwd_cwr_flag_percentage_in_total', 'fwd_ece_flag_counts', 'fwd_ece_flag_percentage_in_fwd_packets', 'fwd_ece_flag_percentage_in_total'
+]
+
+
+fwd_rst_flag_counts_23  =  [
+    'fwd_rst_flag_percentage_in_fwd_packets', 'fwd_rst_flag_percentage_in_total'
+]
+
+bwd_rst_flag_counts_24  =  [
+    'bwd_rst_flag_percentage_in_bwd_packets', 'bwd_rst_flag_percentage_in_total'
+]
+
+fin_flag_counts_25  =  [
+    'bwd_fin_flag_percentage_in_bwd_packets','bwd_fin_flag_percentage_in_total', 'fin_flag_percentage_in_total', 'fwd_fin_flag_percentage_in_fwd_packets', 'fwd_fin_flag_percentage_in_total'
+]
+
+psh_flag_counts_26  =  [
+    'bwd_psh_flag_percentage_in_bwd_packets','bwd_psh_flag_percentage_in_total', 'fwd_psh_flag_percentage_in_fwd_packets', 'fwd_psh_flag_percentage_in_total', 'psh_flag_percentage_in_total'
+]
+
+mean_bwd_header_bytes_27  =  [
+    'bwd_syn_flag_percentage_in_bwd_packets', 'bwd_syn_flag_percentage_in_total', 'fwd_syn_flag_percentage_in_fwd_packets', 'fwd_syn_flag_percentage_in_total', 'syn_flag_percentage_in_total'
+]
+
+bwd_packets_iat_max_28  =  [
+    'bwd_packets_iat_std', 'packet_iat_std', 'packets_iat_variance'
+]
+
+packets_iat_median_29  =  [
+    'median_packets_delta_time'
+]
+
+packets_iat_cov_30  =  [
+    'bwd_packets_iat_skewness', 'packets_iat_skewness','bwd_packets_iat_cov'
+]
+
+fwd_packets_iat_max_31  =  [
+    'fwd_packets_iat_std', 'fwd_packets_iat_variance'
+]
+
+
+bwd_packets_iat_min_33  =  [
+    'min_bwd_packets_delta_time', 'mode_bwd_packets_delta_time'
+]
+
+max_bwd_packets_delta_time_35  = [
+    'std_bwd_packets_delta_time', 'variance_bwd_packets_delta_time'
+]
+
+mean_bwd_packets_delta_time_36  =  [
+    'mean_packets_delta_time', 'median_bwd_packets_delta_time'
+]
+
+std_packets_delta_time_37 =  [
+    'variance_packets_delta_time'
+]
+
+cov_bwd_packets_delta_time_38  =  [
+    'cov_packets_delta_time', 'skewness_packets_delta_time'
+]
+
+max_fwd_packets_delta_time_39  =  [
+    'std_fwd_packets_delta_time', 'variance_fwd_packets_delta_time'
+]
+
+median_packets_delta_len_40  =  [
+    'median_payload_bytes_delta_len'
+]
+
+skewness_packets_delta_len_41  =  [
+    'skewness_payload_bytes_delta_len'
+]
+
+max_bwd_packets_delta_len_42 =  [
+    'max_bwd_payload_bytes_delta_len', 'min_bwd_packets_delta_len', 'min_bwd_payload_bytes_delta_len', 'std_bwd_packets_delta_len', 'std_bwd_payload_bytes_delta_len'
+]
+
+mean_bwd_packets_delta_len_43  =  [
+    'mean_bwd_payload_bytes_delta_len'
+]
+
+mode_bwd_packets_delta_len_44  =  [
+    'mode_bwd_payload_bytes_delta_len'
+]
+
+median_bwd_packets_delta_len_45  =  [
+    'median_bwd_payload_bytes_delta_len'
+]
+
+skewness_bwd_packets_delta_len_46  =  [
+    'skewness_bwd_payload_bytes_delta_len'
+]
+
+median_fwd_packets_delta_len_47  =  [
+    'median_fwd_payload_bytes_delta_len'
+]
+
+skewness_fwd_packets_delta_len_48  =  [
+    'skewness_fwd_payload_bytes_delta_len'
+]
+
+max_header_bytes_delta_len_49  = [
+    'max_bwd_header_bytes_delta_len'
+]
+
+
+# ----------------------------------------------------------------------------
+
 # Master list of list names to use for deletion
 DELETION_LISTS = [
-    'CONSTANT_COLUMNS',
-    'LOW_VARIANCE_COLUMNS_95_99',
-    'LOW_VARIANCE_COLUMNS_90_95',
-    # Add new list names here to include them in deletion
+    'CONSTANT_COLUMNS_1',
+    'LOW_VARIANCE_COLUMNS_95_99_2',
+    'LOW_VARIANCE_COLUMNS_90_95_3',
+    'INF_VALUES_40_MORE_4',
+    'bwd_init_win_bytes_5',
+    'bwd_packets_iat_total_6',
+    'ack_flag_counts_7',
+    'bwd_payload_bytes_max_8',
+    'avg_segment_size_9',
+    'fwd_payload_bytes_variance_10',
+    'bwd_payload_bytes_variance_11',
+    'bwd_payload_bytes_cov_12',
+    'bwd_cov_header_bytes_13',
+    'skewness_header_bytes_14',
+    'fwd_cov_header_bytes_15',
+    'fwd_skewness_header_bytes_16',
+    'bwd_skewness_header_bytes_17',
+    'bwd_bytes_rate_18',
+    'avg_bwd_bytes_per_bulk_19',
+    'bwd_fin_flag_counts_20',
+    'bwd_psh_flag_counts_21',
+    'bwd_ece_flag_counts_22',
+    'fwd_rst_flag_counts_23',
+    'bwd_rst_flag_counts_24',
+    'bwd_fin_flag_percentage_in_bwd_packets_25',
+    'bwd_psh_flag_percentage_in_bwd_packets_26',
+    'ack_flag_percentage_in_total_27',
+    'bwd_packets_iat_max_28',
+    'median_packets_delta_time_29',
+    'bwd_packets_iat_cov_30',
+    'fwd_packets_iat_max_31',
+    'bwd_packets_iat_median_32',
+    'bwd_packets_iat_min_33',
+    'subflow_bwd_bytes_34',
+    'max_bwd_packets_delta_time_35',
+    'mean_bwd_packets_delta_time_36',
+    'std_packets_delta_time_37',
+    'cov_bwd_packets_delta_time_38',
+    'max_fwd_packets_delta_time_39',
+    'median_packets_delta_len_40',
+    'skewness_packets_delta_len_41',
+    'max_bwd_packets_delta_len_42',
+    'mean_bwd_packets_delta_len_43',
+    'mode_bwd_packets_delta_len_44',
+    'median_bwd_packets_delta_len_45',
+    'skewness_bwd_packets_delta_len_46',
+    'median_fwd_packets_delta_len_47',
+    'skewness_fwd_packets_delta_len_48',
+    'max_bwd_header_bytes_delta_len_49'
+
+
 ]
 
 # Utility to collect all columns from the named lists
