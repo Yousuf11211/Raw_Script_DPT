@@ -19,7 +19,7 @@ import sklearn
 print(f"Scikit-learn Version: {sklearn.__version__}")
 
 # ===== CONFIGURATION =====
-INPUT_FOLDER = "Training_Attack"
+INPUT_FOLDER = r"C:\Users\Yousuf\Desktop\Raw_Script_DPT\Bening1"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
@@ -29,7 +29,7 @@ REPORT_FOLDER = os.path.join(OUTPUT_ROOT, "Model_Random_Forest", "reports")
 os.makedirs(MODEL_FOLDER, exist_ok=True)
 os.makedirs(REPORT_FOLDER, exist_ok=True)
 
-train_full_data = True
+train_full_data = False
 MAX_SAMPLE_ROWS = 500_000
 
 
@@ -208,6 +208,13 @@ def process_csv(file_path, chunk_rows):
     X = data.drop(columns=['label'])
     y_raw = data['label']
 
+    # --- ADD THIS CLEANING BLOCK ---
+    import numpy as np
+    print("Cleaning Infinity and NaN values...")
+    X.replace([np.inf, -np.inf], 0, inplace=True)
+    X.fillna(0, inplace=True)
+    # -------------------------------
+
     le = LabelEncoder()
     y = le.fit_transform(y_raw)
 
@@ -249,9 +256,13 @@ def process_csv(file_path, chunk_rows):
 
         print("Evaluating on test data...")
         y_pred = rf.predict(X_test)
-        report = classification_report(y_test, y_pred, target_names=le.classes_)
+
+        # --- FIX: Convert label names to strings so the report can format them ---
+        str_classes = [str(c) for c in le.classes_]
+
+        report = classification_report(y_test, y_pred, target_names=str_classes)
         cm = confusion_matrix(y_test, y_pred)
-        cm_df = pd.DataFrame(cm, index=le.classes_, columns=le.classes_)
+        cm_df = pd.DataFrame(cm, index=str_classes, columns=str_classes)
 
         report_path = os.path.join(REPORT_FOLDER, f"{model_name}_report.txt")
         cm_path = os.path.join(REPORT_FOLDER, f"{model_name}_confusion_matrix.csv")

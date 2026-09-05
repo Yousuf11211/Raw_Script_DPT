@@ -11,6 +11,14 @@ venv/
 env/
 ENV/
 
+Attack1/
+Attacks/
+
+Output/
+
+Benign/
+Bening1/
+Beningtest
 # IDE
 .idea/
 

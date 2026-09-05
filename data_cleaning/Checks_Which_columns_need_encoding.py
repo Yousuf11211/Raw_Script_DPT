@@ -27,8 +27,9 @@ from utils.engine_utils import select_engine
 from utils.path_utils import resolve_input_path, resolve_output_path
 
 # --- Configuration ---
-INPUT_FOLDER = "Downscale_Csv_2018"
-COLUMNS_TO_CHECK = ['delta_start', 'handshake_duration', 'label']
+INPUT_FOLDER = "Bening1"
+# COLUMNS_TO_CHECK = ['delta_start', 'handshake_duration', 'label']
+COLUMNS_TO_CHECK = ['delta_start', 'label']
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
@@ -132,10 +133,14 @@ def make_unique_path(path):
         counter += 1
 
 
-def build_invalid_mask(df):
+# def build_invalid_mask(df):
     delta_invalid = df['delta_start'].astype(str).str.lower().str.contains("not a complete handshake", na=False)
     handshake_invalid = df['handshake_duration'].astype(str).str.lower().str.contains("not a complete handshake", na=False)
     return delta_invalid & handshake_invalid
+
+def build_invalid_mask(df):
+    delta_invalid = df['delta_start'].astype(str).str.lower().str.contains("not a complete handshake", na=False)
+    return delta_invalid
 
 
 _NO_INTERACTIVE = False

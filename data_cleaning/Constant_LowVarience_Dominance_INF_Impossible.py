@@ -27,7 +27,7 @@ from utils.engine_utils import select_engine
 from utils.path_utils import resolve_input_path, resolve_output_path
 
 # --- 1. GLOBAL CONFIGURATION ---
-INPUT_FOLDER = "Normalized_SET"
+INPUT_FOLDER = "Bening1"
 
 # Legacy output location (kept for compatibility if --output-dir is not given)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

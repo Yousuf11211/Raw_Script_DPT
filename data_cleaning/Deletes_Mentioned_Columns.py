@@ -19,7 +19,7 @@ from itertools import chain
 # --- Default configuration (can be overridden by CLI) ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
-DEFAULT_INPUT_FOLDER = "Bening"
+DEFAULT_INPUT_FOLDER = "Bening1"
 DEFAULT_OUTPUT_FOLDER = os.path.join(OUTPUT_ROOT, "Attacks_Cleaned")
 DEFAULT_SUMMARY_NAME = "deletion_summary.csv"
 
@@ -228,15 +228,176 @@ MAX_HEADER_BYTES_DELTA_LEN_46  = [
     'max_bwd_header_bytes_delta_len'
 ]
 
+quasi_constant_columns = [
+    "bwd_urg_flag_counts", "fwd_urg_flag_counts", "urg_flag_counts",
+    "fwd_bulk_state_count", "active_min", "avg_fwd_bulk_rate",
+    "fwd_bulk_duration", "bwd_payload_bytes_min", "fwd_bulk_per_packet",
+    "avg_fwd_packets_per_bulk", "protocol", "payload_bytes_min",
+    "avg_fwd_bytes_per_bulk", "active_max", "idle_mean",
+    "fwd_bulk_total_size", "active_mean", "idle_min", "idle_std",
+    "bwd_cwr_flag_counts", "active_std", "fwd_payload_bytes_min", "idle_max"
+]
+# Add this to your batch cleaning script from earlier
+# DATA_LEAKAGE_AND_CONSTANTS = [
+#     # 100% Constant
+#     'bwd_urg_flag_counts', 'urg_flag_counts', 'fwd_urg_flag_counts',
+#
+#     # Missing from Benign Traffic (Data Leakage)
+#     'active_median', 'active_skewness', 'active_cov', 'active_mode', 'active_variance',
+#     'idle_median', 'idle_skewness', 'idle_cov', 'idle_mode', 'idle_variance',
+#     'mean_payload_bytes_delta_len', 'mode_payload_bytes_delta_len',
+#     'payload_bytes_median', 'fwd_payload_bytes_median', 'mode_fwd_payload_bytes_delta_len',
+#     'bwd_payload_bytes_median', 'bwd_ack_flag_percentage_in_bwd_packets', 'packets_iat_mode',
+#     'mode_packets_delta_len', 'median_packets_delta_len', 'mean_fwd_packets_delta_len',
+#     'median_fwd_packets_delta_len', 'max_header_bytes_delta_len', 'mean_fwd_header_bytes_delta_len',
+#     'fwd_payload_bytes_skewness', 'fwd_payload_bytes_cov', 'rst_flag_percentage_in_total',
+#     'packets_iat_variance', 'fwd_packets_iat_variance', 'bwd_packets_iat_variance',
+#     'handshake_duration', 'handshake_state', 'mode_bwd_packets_delta_len',
+#     'median_bwd_packets_delta_len', 'skewness_bwd_packets_delta_len', 'mode_fwd_packets_delta_len',
+#     'skewness_fwd_packets_delta_len'
+# ]
+
+# for model 1
+# Analyzing features with importance < 0.1%...
+# Found 80 features with very low importance.
+#   1. bwd_packets_iat_total: 0.0979%
+#   2. fwd_packets_iat_mean: 0.0979%
+#   3. packet_iat_max: 0.0900%
+#   4. packets_rate: 0.0806%
+#   5. bwd_ack_flag_counts: 0.0786%
+#   6. packet_iat_total: 0.0518%
+#   7. syn_flag_counts: 0.0490%
+#   8. down_up_rate: 0.0423%
+#   9. std_fwd_packets_delta_time: 0.0405%
+#   10. fwd_packets_iat_cov: 0.0401%
+#   11. ack_flag_counts: 0.0303%
+#   12. variance_packets_delta_time: 0.0246%
+#   13. packets_count: 0.0236%
+#   14. bwd_fin_flag_counts: 0.0222%
+#   15. fwd_syn_flag_counts: 0.0201%
+#   16. bwd_payload_bytes_max: 0.0107%
+#   17. rst_flag_counts: 0.0104%
+#   18. total_header_bytes: 0.0097%
+#   19. payload_bytes_max: 0.0092%
+#   20. duration: 0.0092%
+#   21. fin_flag_counts: 0.0063%
+#   22. fwd_rst_flag_counts: 0.0028%
+#   23. fwd_packets_rate: 0.0025%
+#   24. bwd_rst_flag_counts: 0.0023%
+#   25. bwd_syn_flag_counts: 0.0017%
+#   26. mean_bwd_header_bytes_delta_len: 0.0017%
+#   27. bwd_packets_rate: 0.0007%
+#   28. packet_iat_std: 0.0006%
+#   29. bwd_packets_count: 0.0005%
+#   30. payload_bytes_mean: 0.0001%
+#   31. fwd_payload_bytes_max: 0.0000%
+#   32. psh_flag_counts: 0.0000%
+#   33. total_payload_bytes: 0.0000%
+#   34. avg_segment_size: 0.0000%
+#   35. payload_bytes_variance: 0.0000%
+#   36. cwr_flag_counts: 0.0000%
+#   37. bwd_payload_bytes_std: 0.0000%
+#   38. payload_bytes_std: 0.0000%
+#   39. fwd_total_payload_bytes: 0.0000%
+#   40. bwd_total_payload_bytes: 0.0000%
+#   41. fwd_payload_bytes_std: 0.0000%
+#   42. fwd_avg_segment_size: 0.0000%
+#   43. active_min: 0.0000%
+#   44. active_max: 0.0000%
+#   45. active_mean: 0.0000%
+#   46. active_std: 0.0000%
+#   47. idle_min: 0.0000%
+#   48. idle_max: 0.0000%
+#   49. fwd_fin_flag_counts: 0.0000%
+#   50. fwd_psh_flag_counts: 0.0000%
+#   51. bytes_rate: 0.0000%
+#   52. fwd_bytes_rate: 0.0000%
+#   53. bwd_bulk_duration: 0.0000%
+#   54. bwd_bulk_state_count: 0.0000%
+#   55. avg_bwd_bulk_rate: 0.0000%
+#   56. idle_mean: 0.0000%
+#   57. bwd_bytes_rate: 0.0000%
+#   58. idle_std: 0.0000%
+#   59. ece_flag_counts: 0.0000%
+#   60. fwd_packets_iat_std: 0.0000%
+#   61. subflow_bwd_packets: 0.0000%
+#   62. subflow_fwd_bytes: 0.0000%
+#   63. subflow_bwd_bytes: 0.0000%
+#   64. payload_bytes_skewness: 0.0000%
+#   65. fwd_packets_iat_skewness: 0.0000%
+#   66. skewness_header_bytes: 0.0000%
+#   67. bwd_packets_iat_std: 0.0000%
+#   68. subflow_fwd_packets: 0.0000%
+#   69. cov_bwd_packets_delta_time: 0.0000%
+#   70. skewness_bwd_packets_delta_time: 0.0000%
+#   71. delta_start: 0.0000%
+#   72. skewness_packets_delta_time: 0.0000%
+#   73. cov_bwd_packets_delta_len: 0.0000%
+#   74. skewness_packets_delta_len: 0.0000%
+#   75. skewness_fwd_packets_delta_time: 0.0000%
+#   76. cov_fwd_packets_delta_len: 0.0000%
+#   77. cov_header_bytes_delta_len: 0.0000%
+#   78. cov_bwd_header_bytes_delta_len: 0.0000%
+#   79. cov_fwd_header_bytes_delta_len: 0.0000%
+#   80. min_payload_bytes_delta_len: 0.0000%
+
 
 # ----------------------------------------------------------------------------
 # Master list of list names to use for deletion
+# ----------------------------------------------------------------------------
+# Master list of list names to use for deletion
 DELETION_LISTS = [
+    'quasi_constant_columns',
+    'DATA_LEAKAGE_AND_CONSTANTS',
     'Identifiers',
-    'INF_'
+    'CONSTANT_COLUMNS_1',
+    'LOW_VARIANCE_COLUMNS_95_99_2',
+    'LOW_VARIANCE_COLUMNS_90_95_3',
+    'INF_VALUES_40_MORE_4',
+    'DURATION_PACKET_IAT_TOTAL_5',
+    'ACK_FLAG_COUNTS_6',
+    'BWD_PAYLOAD_BYTES_7',
+    'AVG_SEGMENT_SIZE_8',
+    'PAYLOAD_BYTES_VARIANCE_9',
+    'PAYLOAD_BYTES_VARIANCE_10',
+    'PAYLOAD_BYTES_VARIANCE_11',
+    'SKIPPING_FRD_BWD_12',
+    'SKEWNESS_HEADER_BYTES_13',
+    'SKIPPING_FRD_BWD_14',
+    'SKIPPING_FRD_BWD_15',
+    'SKIPPING_FRD_BWD_16',
+    'BYTES_RATE_PACKETS_RATE_17',
+    'SKIPPING_FRD_BWD_18',
+    'FIN_FLAG_COUNTS_19',
+    'PSH_FLAG_COUNTS_20',
+    'ECE_FLAG_COUNTS_21',
+    'FWD_RST_FLAG_COUNTS_22',
+    'BWD_RST_FLAG_COUNTS_23',
+    'FIN_FLAG_COUNTS_24',
+    'PSH_FLAG_COUNTS_25',
+    'MEAN_BWD_HEADER_BYTES_26',
+    'BWD_PACKETS_IAT_MAX_27',
+    'PACKETS_IAT_MEDIAN_28',
+    'PACKETS_IAT_COV_29',
+    'FWD_PACKETS_IAT_MAX_30',
+    'BWD_PACKETS_IAT_MIN_31',
+    'MAX_BWD_PACKETS_DELTA_TIME_32',
+    'MEAN_BWD_PACKETS_DELTA_TIME_33',
+    'STD_PACKETS_DELTA_TIME_34',
+    'COV_BWD_PACKETS_DELTA_TIME_35',
+    'MAX_FWD_PACKETS_DELTA_TIME_36',
+    'MEDIAN_PACKETS_DELTA_LEN_37',
+    'SKEWNESS_PACKETS_DELTA_LEN_38',
+    'MAX_BWD_PACKETS_DELTA_LEN_39',
+    'MEAN_BWD_PACKETS_DELTA_LEN_40',
+    'MODE_BWD_PACKETS_DELTA_LEN_41',
+    'MEDIAN_BWD_PACKETS_DELTA_LEN_42',
+    'SKEWNESS_BWD_PACKETS_DELTA_LEN_43',
+    'MEDIAN_FWD_PACKETS_DELTA_LEN_44',
+    'SKEWNESS_FWD_PACKETS_DELTA_LEN_45',
+    'MAX_HEADER_BYTES_DELTA_LEN_46'
 ]
 # Duplicates across lists will be reported below after code update.
-# ----------------------------------------------------------------------------
 
 # Utility to collect all columns from the named lists
 def get_columns_to_remove(list_names: list[str]) -> list[str]:

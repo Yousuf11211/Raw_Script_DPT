@@ -18,9 +18,17 @@ import matplotlib.pyplot as plt
 # CONFIGURATION - CHANGE THESE SETTINGS
 # ======================
 
-PROCESS_FOLDER = True  # True = process all CSVs in a folder, False = single file
-FOLDER_PATH = "Raw_Data_2017"
-SINGLE_FILE_PATH = "Training_2018/training_2_validated.csv"
+PROCESS_FOLDER = False  # True = process all CSVs in a folder, False = single file
+# ======================
+# CONFIGURATION - CHANGE THESE SETTINGS
+# ======================
+
+PROCESS_FOLDER = False  # True = process all CSVs in a folder, False = single file
+FOLDER_PATH = "Bening1"
+
+# IMPORTANT: Make sure this file is actually in the folder wh ere you are running the script!
+# If it is in an outputs folder, change this to "outputs/Model.csv"
+SINGLE_FILE_PATH = r"C:\Users\Yousuf\Desktop\Raw_Script_DPT\Bening1\model1_final_training_data.csv"
 IMPORTANCE_THRESHOLD = 0.1  # percent
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -305,7 +313,20 @@ def main():
     if categorical_cols:
         print(f"  Encoding {len(categorical_cols)} categorical columns...")
         for col in categorical_cols:
-            X[col] = LabelEncoder().fit_transform(X[col])
+            X[col] = LabelEncoder().fit_transform(X[col].astype(str))
+
+    # --- THIS LINE IS REQUIRED TO PREVENT THE SCRIPT FROM CRASHING ---
+    print("Handling missing values (NaNs)...")
+    X.fillna(0, inplace=True)
+    # --- REQUIRED FIX FOR MISSING DATA AND INFINITY ---
+    import numpy as np
+
+    print("Handling missing values (NaNs) and Infinity...")
+    X.replace([np.inf, -np.inf], 0, inplace=True)
+    X.fillna(0, inplace=True)
+
+    print("\nTraining Random Forest model...")
+    rf = RandomForestClassifier(n_estimators=100, n_jobs=-1, random_state=42)
 
     print("\nTraining Random Forest model...")
     rf = RandomForestClassifier(n_estimators=100, n_jobs=-1, random_state=42)

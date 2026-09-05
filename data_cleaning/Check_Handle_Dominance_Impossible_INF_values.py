@@ -26,7 +26,7 @@ from utils.path_utils import resolve_input_path, resolve_output_path
 from utils.gpu_utils import gpu_available as dask_cuda_gpu_available
 
 # --- GLOBAL CONFIGURATION VARIABLES ---
-INPUT_FOLDER = "Bening"
+INPUT_FOLDER = "Bening1"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
