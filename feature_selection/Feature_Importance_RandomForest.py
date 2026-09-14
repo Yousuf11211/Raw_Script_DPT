@@ -24,11 +24,11 @@ PROCESS_FOLDER = False  # True = process all CSVs in a folder, False = single fi
 # ======================
 
 PROCESS_FOLDER = False  # True = process all CSVs in a folder, False = single file
-FOLDER_PATH = "Bening1"
+FOLDER_PATH = "Attack1"
 
 # IMPORTANT: Make sure this file is actually in the folder wh ere you are running the script!
 # If it is in an outputs folder, change this to "outputs/Model.csv"
-SINGLE_FILE_PATH = r"C:\Users\Yousuf\Desktop\Raw_Script_DPT\Bening1\model1_final_training_data.csv"
+SINGLE_FILE_PATH = r"C:\Users\Yousuf\Desktop\Raw_Script_DPT\Attack1\model2_multiclass_training_data.csv"
 IMPORTANCE_THRESHOLD = 0.1  # percent
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

@@ -92,8 +92,11 @@ df_pd = df_attack_final.compute()
 # 5. FILTER COLUMNS, CREATE MAPPING, AND EXPORT
 # ==========================================
 print(f"\n--- FILTERING TO EXACT MODEL 1 FEATURES ---")
+
+# FIX: Force all raw column headers to lowercase to match the TARGET_COLUMNS list
+df_pd.columns = df_pd.columns.str.lower()
+
 # Keep only the columns specified in TARGET_COLUMNS
-# Using errors='ignore' ensures it doesn't crash if a column has a slight typo
 df_pd = df_pd[TARGET_COLUMNS]
 
 print("\n--- CREATING LABEL MAPPING ---")

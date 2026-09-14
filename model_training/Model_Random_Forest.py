@@ -19,7 +19,7 @@ import sklearn
 print(f"Scikit-learn Version: {sklearn.__version__}")
 
 # ===== CONFIGURATION =====
-INPUT_FOLDER = r"C:\Users\Yousuf\Desktop\Raw_Script_DPT\Bening1"
+INPUT_FOLDER = r"C:\Users\Yousuf\Desktop\Raw_Script_DPT\Attack1"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")

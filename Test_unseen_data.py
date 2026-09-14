@@ -5,7 +5,7 @@ import os
 
 # ===== CONFIGURATION =====
 # 1. Point this to your saved .pkl model file
-MODEL_PATH = r"C:\Users\Yousuf\Desktop\Raw_Script_DPT\model_training\outputs\Model_Random_Forest\models\model1_final_training_data_model.pkl"
+MODEL_PATH = r"C:\Users\Yousuf\Desktop\Raw_Script_DPT\model_training\outputs\Model_Random_Forest\models\model2_multiclass_training_data_model.pkl"
 
 # 2. Point this to the COMPLETELY NEW CSV file (the one with extra features)
 NEW_CSV_PATH = r"Benign/Benign_part_9.csv"
