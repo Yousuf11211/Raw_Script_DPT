@@ -19,8 +19,8 @@ from itertools import chain
 # --- Default configuration (can be overridden by CLI) ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
-DEFAULT_INPUT_FOLDER = "Bening1"
-DEFAULT_OUTPUT_FOLDER = os.path.join(OUTPUT_ROOT, "Attacks_Cleaned")
+DEFAULT_INPUT_FOLDER = "Beningtest"
+DEFAULT_OUTPUT_FOLDER = os.path.join(OUTPUT_ROOT, "Benign_Cleaned")
 DEFAULT_SUMMARY_NAME = "deletion_summary.csv"
 
 # -------------------
@@ -237,25 +237,24 @@ quasi_constant_columns = [
     "fwd_bulk_total_size", "active_mean", "idle_min", "idle_std",
     "bwd_cwr_flag_counts", "active_std", "fwd_payload_bytes_min", "idle_max"
 ]
-# Add this to your batch cleaning script from earlier
-# DATA_LEAKAGE_AND_CONSTANTS = [
-#     # 100% Constant
-#     'bwd_urg_flag_counts', 'urg_flag_counts', 'fwd_urg_flag_counts',
-#
-#     # Missing from Benign Traffic (Data Leakage)
-#     'active_median', 'active_skewness', 'active_cov', 'active_mode', 'active_variance',
-#     'idle_median', 'idle_skewness', 'idle_cov', 'idle_mode', 'idle_variance',
-#     'mean_payload_bytes_delta_len', 'mode_payload_bytes_delta_len',
-#     'payload_bytes_median', 'fwd_payload_bytes_median', 'mode_fwd_payload_bytes_delta_len',
-#     'bwd_payload_bytes_median', 'bwd_ack_flag_percentage_in_bwd_packets', 'packets_iat_mode',
-#     'mode_packets_delta_len', 'median_packets_delta_len', 'mean_fwd_packets_delta_len',
-#     'median_fwd_packets_delta_len', 'max_header_bytes_delta_len', 'mean_fwd_header_bytes_delta_len',
-#     'fwd_payload_bytes_skewness', 'fwd_payload_bytes_cov', 'rst_flag_percentage_in_total',
-#     'packets_iat_variance', 'fwd_packets_iat_variance', 'bwd_packets_iat_variance',
-#     'handshake_duration', 'handshake_state', 'mode_bwd_packets_delta_len',
-#     'median_bwd_packets_delta_len', 'skewness_bwd_packets_delta_len', 'mode_fwd_packets_delta_len',
-#     'skewness_fwd_packets_delta_len'
-# ]
+DATA_LEAKAGE_AND_CONSTANTS = [
+    # 100% Constant
+    'bwd_urg_flag_counts', 'urg_flag_counts', 'fwd_urg_flag_counts',
+
+    # Missing from Benign Traffic (Data Leakage)
+    'active_median', 'active_skewness', 'active_cov', 'active_mode', 'active_variance',
+    'idle_median', 'idle_skewness', 'idle_cov', 'idle_mode', 'idle_variance',
+    'mean_payload_bytes_delta_len', 'mode_payload_bytes_delta_len',
+    'payload_bytes_median', 'fwd_payload_bytes_median', 'mode_fwd_payload_bytes_delta_len',
+    'bwd_payload_bytes_median', 'bwd_ack_flag_percentage_in_bwd_packets', 'packets_iat_mode',
+    'mode_packets_delta_len', 'median_packets_delta_len', 'mean_fwd_packets_delta_len',
+    'median_fwd_packets_delta_len', 'max_header_bytes_delta_len', 'mean_fwd_header_bytes_delta_len',
+    'fwd_payload_bytes_skewness', 'fwd_payload_bytes_cov', 'rst_flag_percentage_in_total',
+    'packets_iat_variance', 'fwd_packets_iat_variance', 'bwd_packets_iat_variance',
+    'handshake_duration', 'handshake_state', 'mode_bwd_packets_delta_len',
+    'median_bwd_packets_delta_len', 'skewness_bwd_packets_delta_len', 'mode_fwd_packets_delta_len',
+    'skewness_fwd_packets_delta_len'
+]
 
 # for model 1
 # Analyzing features with importance < 0.1%...
