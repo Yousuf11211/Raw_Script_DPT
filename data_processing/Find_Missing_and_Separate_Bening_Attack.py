@@ -1,16 +1,14 @@
 # What changed:
-# - Added GPU detection/device prompt and chunk size prompt with row estimation.
+# - Proportional sampling: Extracts an equal quota of rows from all input files per batch.
+# - Added prompt for max output files to generate (prevents unwanted extra files).
 # - Streamed splitting to avoid full in-memory loads; added optional max-rows limits.
 # - Standardized outputs under ./outputs/Separated_Model_Data with final summary.
-#
-# Purpose:
-# - Analyze label distribution across CSVs.
-# - Separate benign and attack rows into output files.
-# - Save chunked outputs with progress reporting.
 
 import os
 import sys
 import argparse
+import math
+from collections import defaultdict
 
 # Allow running this script from any working directory.
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
@@ -18,7 +16,6 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 import pandas as pd
-from collections import defaultdict
 
 from config.global_config import DEFAULT_CHUNK_SIZE_MB, DEFAULT_MAX_OUTPUT_ROWS
 from utils.chunk_utils import compute_chunk_plan, format_progress, print_chunk_plan
@@ -26,7 +23,7 @@ from utils.engine_utils import select_engine
 from utils.path_utils import resolve_input_path, resolve_output_path
 
 # --- 1. Global Configuration ---
-INPUT_FOLDER = "Normalized_SET"
+INPUT_FOLDER = "IDS2018"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
@@ -112,7 +109,7 @@ def estimate_rows_per_chunk(file_path, chunk_mb, sample_rows=2000, default_rows=
 
 def prompt_for_max_rows():
     while True:
-        response = input("Limit rows to save? (y/n): ").strip().lower()
+        response = input("Limit total rows to save? (y/n): ").strip().lower()
         if response in ["y", "yes"]:
             while True:
                 value = input("Enter max rows: ").strip()
@@ -127,6 +124,21 @@ def prompt_for_max_rows():
             return None
         else:
             print("Invalid input. Please enter 'y' or 'n'.")
+
+
+def prompt_for_max_files(group_name=""):
+    prompt_label = f"How many {group_name} files do you want to generate? (e.g. 1 for quick test, or press Enter for 'all'): "
+    while True:
+        response = input(prompt_label).strip().lower()
+        if response in ["", "all"]:
+            return None
+        try:
+            val = int(response)
+            if val > 0:
+                return val
+        except ValueError:
+            pass
+        print("  Please enter a positive whole number or press Enter for 'all'.")
 
 
 def make_unique_path(path):
@@ -172,7 +184,7 @@ def analyze_and_classify(all_files, processing_mode):
             if processing_mode != 'both':
                 try:
                     preview_df = pd.read_csv(file_path, usecols=[actual_label_col_name], nrows=20, low_memory=False)
-                    unique_labels_in_preview = set(preview_df[actual_label_col_name].str.lower().unique())
+                    unique_labels_in_preview = set(preview_df[actual_label_col_name].astype(str).str.lower().unique())
                     if processing_mode == 'attacks' and unique_labels_in_preview == {BENIGN_LABEL_VALUE}:
                         print("    -> Optimization: Skipping file as it appears to contain only benign data.")
                         continue
@@ -205,6 +217,7 @@ def process_and_save_combined(
     should_shuffle,
     actual_label_col_name,
     max_rows_limit=None,
+    max_files_limit=None,
 ):
     if not file_list or not labels_to_keep:
         return
@@ -212,9 +225,13 @@ def process_and_save_combined(
     print(f"\nProcessing Group Sequentially: {output_group_name}")
     print(f"  - Using {len(file_list)} source file(s).")
     print(f"  - Aiming for {rows_per_output_file:,} rows per output file.")
+    if max_files_limit:
+        print(f"  - File limit: Max {max_files_limit} file(s) will be generated.")
 
     os.makedirs(output_base_path, exist_ok=True)
     lower_labels_to_keep = [str(lbl).lower() for lbl in labels_to_keep]
+
+    # Initialize streaming iterators for every source file
     iterators = {}
     for file_path in file_list:
         try:
@@ -222,38 +239,70 @@ def process_and_save_combined(
         except Exception as e:
             print(f"  Warning: Could not open {os.path.basename(file_path)}. Skipping it. Error: {e}")
 
+    # Per-file buffers so extra rows read from a chunk aren't lost
+    file_buffers = {fp: pd.DataFrame() for fp in iterators.keys()}
     file_part_counter = 1
-    leftover_df = pd.DataFrame()
     total_saved = 0
 
-    while iterators:
+    while iterators or any(not buf.empty for buf in file_buffers.values()):
+        # Stop if user-defined file count is reached
+        if max_files_limit is not None and file_part_counter > max_files_limit:
+            print(f"  -> Reached file limit of {max_files_limit}. Stopping.")
+            break
+
+        # Stop if user-defined total row count is reached
         if max_rows_limit is not None and total_saved >= max_rows_limit:
             break
 
-        batch_dataframes = [leftover_df] if not leftover_df.empty else []
-        rows_collected = len(leftover_df)
+        batch_dataframes = []
+        rows_collected = 0
 
-        while rows_collected < rows_per_output_file and iterators:
-            iterators_this_pass = list(iterators.keys())
-            for file_path in iterators_this_pass:
-                try:
-                    chunk = next(iterators[file_path])
-                    SUMMARY["total_rows_processed"] += len(chunk)
-                    clean_chunk = chunk[chunk[actual_label_col_name].str.lower().isin(lower_labels_to_keep)]
-                    if not clean_chunk.empty:
-                        batch_dataframes.append(clean_chunk)
-                        rows_collected += len(clean_chunk)
-                        if rows_collected >= rows_per_output_file:
-                            break
-                except StopIteration:
-                    del iterators[file_path]
-                except Exception as e:
-                    print(f"  Error reading chunk from {os.path.basename(file_path)}. Removing it. Error: {e}")
-                    del iterators[file_path]
+        # Round-robin: sample equally across all active source files
+        while rows_collected < rows_per_output_file:
+            active_sources = [fp for fp in list(file_buffers.keys()) if (fp in iterators or not file_buffers[fp].empty)]
+            if not active_sources:
+                break
+
+            remaining_needed = rows_per_output_file - rows_collected
+            per_file_target = max(1, math.ceil(remaining_needed / len(active_sources)))
+
+            progress_made = False
+            for fp in active_sources:
+                # Top up buffer from iterator if below quota
+                while len(file_buffers[fp]) < per_file_target and fp in iterators:
+                    try:
+                        chunk = next(iterators[fp])
+                        SUMMARY["total_rows_processed"] += len(chunk)
+                        chunk_clean = chunk[chunk[actual_label_col_name].astype(str).str.lower().isin(lower_labels_to_keep)]
+                        if not chunk_clean.empty:
+                            file_buffers[fp] = pd.concat([file_buffers[fp], chunk_clean], ignore_index=True)
+                    except StopIteration:
+                        del iterators[fp]
+                    except Exception as e:
+                        print(f"  Error reading from {os.path.basename(fp)}: {e}")
+                        if fp in iterators:
+                            del iterators[fp]
+
+                # Pull proportional rows from this file's buffer
+                if not file_buffers[fp].empty:
+                    pull_count = min(len(file_buffers[fp]), per_file_target, rows_per_output_file - rows_collected)
+                    if pull_count > 0:
+                        slice_df = file_buffers[fp].iloc[:pull_count]
+                        file_buffers[fp] = file_buffers[fp].iloc[pull_count:]
+                        batch_dataframes.append(slice_df)
+                        rows_collected += pull_count
+                        progress_made = True
+
+                if rows_collected >= rows_per_output_file:
+                    break
+
+            if not progress_made:
+                break
 
         if not batch_dataframes:
             break
 
+        # Combine all proportional slices
         combined_df = pd.concat(batch_dataframes, ignore_index=True)
         if should_shuffle:
             combined_df = combined_df.sample(frac=1).reset_index(drop=True)
@@ -265,26 +314,13 @@ def process_and_save_combined(
             if len(combined_df) > remaining:
                 combined_df = combined_df.iloc[:remaining]
 
-        final_df = combined_df.iloc[:rows_per_output_file]
-        leftover_df = combined_df.iloc[rows_per_output_file:]
-
         output_filename = os.path.join(output_base_path, f"{output_group_name}_part_{file_part_counter}.csv")
         output_filename = make_unique_path(output_filename)
-        final_df.to_csv(output_filename, index=False)
-        print(f"  -> Saved {len(final_df):,} rows to {os.path.relpath(output_filename)}")
-        record_output(output_filename, rows_saved=len(final_df))
-        total_saved += len(final_df)
+        combined_df.to_csv(output_filename, index=False)
+        print(f"  -> Saved {len(combined_df):,} rows to {os.path.relpath(output_filename)} (sampled evenly across sources)")
+        record_output(output_filename, rows_saved=len(combined_df))
+        total_saved += len(combined_df)
         file_part_counter += 1
-
-    if not leftover_df.empty and (max_rows_limit is None or total_saved < max_rows_limit):
-        if max_rows_limit is not None:
-            remaining = max_rows_limit - total_saved
-            leftover_df = leftover_df.iloc[:remaining]
-        output_filename = os.path.join(output_base_path, f"{output_group_name}_part_{file_part_counter}.csv")
-        output_filename = make_unique_path(output_filename)
-        leftover_df.to_csv(output_filename, index=False)
-        print(f"  -> Saved {len(leftover_df):,} final rows to {os.path.relpath(output_filename)}")
-        record_output(output_filename, rows_saved=len(leftover_df))
 
     print(f"  - Finished processing for group '{output_group_name}'.")
 
@@ -293,9 +329,7 @@ def process_and_save_combined(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description=(
-            "Analyze label distributions and separate benign/attack rows into output files (streaming-safe)."
-        )
+        description="Analyze label distributions and separate benign/attack rows into output files (streaming-safe)."
     )
     p.add_argument("--input", default=INPUT_FOLDER, help="Input folder containing CSVs")
     p.add_argument("--output-dir", default=None, help="Base output directory")
@@ -315,6 +349,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Max rows per output file (non-interactive override)",
+    )
+    p.add_argument(
+        "--max-files",
+        type=int,
+        default=None,
+        help="Max number of output files to write per group",
     )
     p.add_argument(
         "--shuffle",
@@ -351,7 +391,6 @@ def main(argv: list[str] | None = None):
     args = build_arg_parser().parse_args(argv)
     _NO_INTERACTIVE = args.no_interactive
 
-    # Engine selection (pandas streaming today)
     selection = select_engine(engine=args.engine, use_gpu_flag=args.use_gpu, no_gpu_flag=args.no_gpu)
     if selection.engine != "pandas":
         print(f"[info] --engine {selection.engine} requested; this script currently runs in pandas mode.")
@@ -424,16 +463,14 @@ def main(argv: list[str] | None = None):
     process_benign = processing_mode in ['benign', 'both']
     process_attacks = processing_mode in ['attacks', 'both']
 
-    should_shuffle = bool(args.shuffle) if _NO_INTERACTIVE else get_yes_no("Do you want to shuffle the final output files?", default=False)
+    should_shuffle = bool(args.shuffle) if _NO_INTERACTIVE else get_yes_no("Do you want to shuffle the final output files?", default=True)
     max_rows_limit = int(args.max_output_rows) if _NO_INTERACTIVE else prompt_for_max_rows()
 
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-    if args.rows_per_file is not None:
-        rows_per_file = int(args.rows_per_file)
-    else:
-        rows_per_file = None
+    rows_per_file = int(args.rows_per_file) if args.rows_per_file is not None else None
 
+    # --- Process Benign ---
     if process_benign and benign_label_in_data:
         print("\n" + "=" * 30 + " PROCESSING BENIGN DATA " + "=" * 30)
         if rows_per_file is None:
@@ -450,6 +487,8 @@ def main(argv: list[str] | None = None):
                     except ValueError:
                         print("  Invalid input. Please enter a whole number.")
 
+        max_files_benign = args.max_files if _NO_INTERACTIVE else prompt_for_max_files("Benign")
+
         process_and_save_combined(
             file_list=files_by_label.get(benign_label_in_data, []),
             rows_per_output_file=int(rows_per_file),
@@ -459,10 +498,12 @@ def main(argv: list[str] | None = None):
             should_shuffle=should_shuffle,
             actual_label_col_name=actual_label_col,
             max_rows_limit=max_rows_limit,
+            max_files_limit=max_files_benign,
         )
     elif process_benign:
         print("\nSkipping Benign processing: No 'Benign' labels found in the analyzed data.")
 
+    # --- Process Attacks ---
     if process_attacks and attack_labels_in_data:
         print("\n" + "=" * 30 + " PROCESSING ATTACK DATA " + "=" * 30)
         all_attack_files = sorted(list(set(f for lbl in attack_labels_in_data for f in files_by_label.get(lbl, []))))
@@ -483,6 +524,8 @@ def main(argv: list[str] | None = None):
                     except ValueError:
                         print("  Invalid input. Please enter a whole number.")
 
+        max_files_attacks = args.max_files if _NO_INTERACTIVE else prompt_for_max_files("Attack")
+
         process_and_save_combined(
             file_list=all_attack_files,
             rows_per_output_file=int(rows_per_file),
@@ -492,6 +535,7 @@ def main(argv: list[str] | None = None):
             should_shuffle=should_shuffle,
             actual_label_col_name=actual_label_col,
             max_rows_limit=max_rows_limit,
+            max_files_limit=max_files_attacks,
         )
     elif process_attacks:
         print("\nSkipping Attack processing: No attack labels found in the analyzed data.")
