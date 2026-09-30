@@ -20,7 +20,7 @@ except ImportError:
 import glob
 
 # --- CONFIG ---
-INPUT_FOLDER = os.path.join(os.path.dirname(__file__), os.pardir, "output_missing")  # Corrected to parent folder
+INPUT_FOLDER = os.path.join(os.path.dirname(__file__), os.pardir, "Benigntest")  # Corrected to parent folder
 CHUNK_SIZE_MB = DEFAULT_CHUNK_SIZE_MB
 
 
