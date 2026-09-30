@@ -11,9 +11,16 @@ venv/
 env/
 ENV/
 
+Created_Data/
+Beningtest/
+Benignreal
+Bening_real
+Bening1/
 Attack1/
 Attacks/
-test_tcp.csv
+BF_SSH_feature_comparison/
+benign_feature_comparison
+Created_Data/test_tcp.csv
 Output/
 
 Benign/
