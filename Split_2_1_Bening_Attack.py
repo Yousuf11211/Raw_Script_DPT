@@ -8,7 +8,7 @@ import dask.dataframe as dd
 # ==========================================
 BENIGN_FOLDER = "./Benign"
 ATTACK_FOLDER = "./Attacks"
-OUTPUT_CSV = "model1_final_training_data.csv" # Single final file name
+OUTPUT_CSV = "model1_final_training_data1.csv" # Single final file name
 
 LABEL_COL = "label"         # Make sure this matches your CSV column header (case-sensitive)
 MIN_ATTACK_SAMPLES = 500    # Drop attacks with fewer rows than this
